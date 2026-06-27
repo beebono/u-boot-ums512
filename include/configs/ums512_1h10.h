@@ -26,7 +26,7 @@
 #define CONFIG_SPL_BAK
 #define CONFIG_MISC_INIT_R                     /* call misc_init_r()	      */
 #define CONFIG_BOARD_LATE_INIT         /* call board_late_init() */
-//#define CONFIG_SUPPORT_RAW_INITRD
+/* #define CONFIG_SUPPORT_RAW_INITRD */
 
 /* support wifi mode for temp */
 #define CONFIG_WIFI_MODE
@@ -39,8 +39,8 @@
 #define CONFIG_ERASE_SPL_AUTO_DOWNLOAD
 
 /* Cache Definitions */
-//#define CONFIG_SYS_DCACHE_OFF
-//#define CONFIG_SYS_ICACHE_OFF
+/*#define CONFIG_SYS_DCACHE_OFF */
+/*#define CONFIG_SYS_ICACHE_OFF */
 
 #define CONFIG_IDENT_STRING		"SHARKL5PRO"
 
@@ -87,12 +87,12 @@
 /* SharkL5Pro Lowpower feature support start */
 #define CONFIG_SUPPORT_LOWPOWER
 
-// LPC Enable Macro
+/* LPC Enable Macro */
 #define CONFIG_AON_LPC_EN
 #define CONFIG_AP_LPC_EN
 #define CONFIG_CLOCK_AUTO_GATE_EN
 
-// DCDC Drop Enable Macro
+/* DCDC Drop Enable Macro */
 #define CONFIG_DCDCCORE_DEEP_DROP_EN	1
 #define CONFIG_DCDCCORE_DEEP_DROP_VOL 	600 //mV
 
@@ -173,11 +173,12 @@
 #define CONFIG_CMD_IMI
 #define CONFIG_CMD_MEMORY
 #define CONFIG_CMD_MII
-//#define CONFIG_CMD_NET
+/*#define CONFIG_CMD_NET */
 #define CONFIG_CMD_PING
 #define CONFIG_CMD_SAVEENV
 #define CONFIG_CMD_RUN
-//#define CONFIG_CMD_BOOTD
+/*#define CONFIG_CMD_BOOTD */
+#define CONFIG_CMD_BOOTI
 #define CONFIG_CMD_ECHO
 #define CONFIG_CMD_SOURCE
 #define CONFIG_CMD_FAT
@@ -215,16 +216,32 @@
 #define CONFIG_AUTOBOOT_PROMPT "Press q to abort autoboot in %d seconds"
 #define CONFIG_AUTOBOOT_STOP_STR "q"
 /* UBoot CMD Memtest */
-//#define CONFIG_CMD_MEMTEST
+/*#define CONFIG_CMD_MEMTEST */
 #ifdef CONFIG_CMD_MEMTEST
 #define MEMTEST_NODE {"pre_log_buffer", "logbuffer", "sml-mem", "logobuffer", NULL}
 #endif
 #endif
 
-/* Initial environment variables */
-#define CONFIG_BOOTCOMMAND			"cboot normal"
+/*
+ * This BSP does not have the newer bootstd / bootflow framework, but it does
+ * have classic sysboot+extlinux support. For diagnostic bring-up, try a small
+ * scan over likely eMMC devices/partitions and do not fall back to Android
+ * boot, so scan failures are easier to distinguish on hardware.
+ */
+#define CONFIG_BOOTCOMMAND \
+	"run bootcmd_linux; echo extlinux scan failed; sleep 3; reset"
 #define CONFIG_BOOTDELAY		0
-#define	CONFIG_EXTRA_ENV_SETTINGS				"mtdparts=" MTDPARTS_DEFAULT "\0"
+#define	CONFIG_EXTRA_ENV_SETTINGS					\
+	"mtdparts=" MTDPARTS_DEFAULT "\0"				\
+	"kernel_addr_r=0x88200000\0"					\
+	"ramdisk_addr_r=0x93000000\0"				\
+	"fdt_addr_r=0x97f00000\0"					\
+	"pxefile_addr_r=0x97e00000\0"				\
+	"bootfile=/extlinux/extlinux.conf\0"			\
+	"bootfile_alt=/boot/extlinux/extlinux.conf\0"		\
+	"bootdevs=0 1 2 3\0"					\
+	"bootparts=42 43\0"						\
+	"bootcmd_linux=extlinux_scan\0"
 
 
 /* Do not preserve environment */
@@ -251,20 +268,20 @@
 #define CONFIG_BOOTARGS MEM_INIT_PARA" loglevel=7 console=ttyS0,115200n8 init=/init " MTDPARTS_DEFAULT
 
 /*auto boot with normal mode*/
-//#define CONFIG_AUTOBOOT
+/*#define CONFIG_AUTOBOOT */
 
 /*boot with modem*/
 #define BOOT_NATIVE_LINUX_MODEM  1
 
-//#define CONFIG_MINI_TRUSTZONE
+/*#define CONFIG_MINI_TRUSTZONE */
 
 #define CONFIG_SUPPORT_LTE
 #define CONFIG_ADVANCED_LTE
 
 #define CONFIG_SUPPORT_AGDSP
 
-//#define CONFIG_SUPPORT_WLTE
-//#define CONFIG_SUPPORT_GSM
+/*#define CONFIG_SUPPORT_WLTE */
+/*#define CONFIG_SUPPORT_GSM */
 
 #define AUDCP_HEADER_STR "SharkL5_AUDCP"
 #define LTE_AGDSP_SIZE  0x00600000
@@ -313,9 +330,9 @@
 #define USB3_PHY_TUNE1 0x919e9dec
 #define USB3_PHY_TUNE2 0x0f0560fe
 #define CONFIG_USB_PHY_SHARKL5PRO
-//#define CALIBRATION_FLAG_CP0           0x88AF0000
+/*#define CALIBRATION_FLAG_CP0           0x88AF0000 */
 #define CALIBRATION_FLAG_CP1	0x8da20000
-//#define CONFIG_DWC_OTG
+/*#define CONFIG_DWC_OTG */
 #define CONFIG_MODEM_CALIBERATE
 #define CALIBRATE_ENUM_MS 15000
 #define CALIBRATE_IO_MS 2000
@@ -411,7 +428,7 @@
 #define CONFIG_7S_RST_THRESHOLD		15	//7S, hold key down for this time to trigger
 
  /*SMPL config*/
-//#define CONFIG_SMPL_EN
+/*#define CONFIG_SMPL_EN */
 #define CONFIG_SMPL_THRESHOLD 	0		//one step is 0.25S
 
 /* Chip Driver Macro Definitions End*/
@@ -423,7 +440,7 @@
 #define CONFIG_SPRD_HW_I2C
 
 #define CONFIG_DM_SGM41512
-//#define CONFIG_DM_FAN54015
+/*#define CONFIG_DM_FAN54015 */
 
 #define CONFIG_DVFS_ADDR		0x60
 #define CINFIG_DVFS_TX_5_REG_ADDR	0x02
@@ -443,12 +460,12 @@
 
 #define CONFIG_ANDROID_AB
 /* direct access prot configuration  */
-//#define CONFIG_DIRECT_ACC_PROT
+/*#define CONFIG_DIRECT_ACC_PROT */
 /*sharkl5pro dcdc/ldo force on for bringup*/
-//#define CONFIG_DEBUG_DCDCLDO_FORCE_ON
+/*#define CONFIG_DEBUG_DCDCLDO_FORCE_ON */
 
-//sensor
-//#define CONFIG_SENSOR_HUB_UBOOT
+/*sensor */
+/*#define CONFIG_SENSOR_HUB_UBOOT */
 #define CONFIG_SENSOR_I2C_MATRIX_BASE  0x32450018
 #define CONFIG_SENSOR_I2C_MATRIX_VALUE  0x197101
 

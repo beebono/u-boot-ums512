@@ -108,7 +108,7 @@ struct misc_virtual_ab_message {
 #define MISC_VIRTUAL_AB_MAGIC_HEADER 0x56740AB0
 
 #if (__STDC_VERSION__ >= 201112L) || defined(__cplusplus)
-static_assert(sizeof(struct misc_virtual_ab_message) == 64,
+_Static_assert(sizeof(struct misc_virtual_ab_message) == 64,
               "struct misc_virtual_ab_message has wrong size");
 #endif
 

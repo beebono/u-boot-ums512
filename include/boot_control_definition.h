@@ -49,7 +49,7 @@ struct bootloader_message_ab {
  * bootloader_message_ab struct (b/29159185).
  */
 #if (__STDC_VERSION__ >= 201112L) || defined(__cplusplus)
-static_assert(sizeof(struct bootloader_message_ab) == 4096,
+_Static_assert(sizeof(struct bootloader_message_ab) == 4096,
               "struct bootloader_message_ab size changes");
 #endif
 
@@ -104,7 +104,7 @@ struct bootloader_control {
 } __attribute__((packed));
 
 #if (__STDC_VERSION__ >= 201112L) || defined(__cplusplus)
-static_assert(sizeof(struct bootloader_control) ==
+_Static_assert(sizeof(struct bootloader_control) ==
               sizeof(((struct bootloader_message_ab *)0)->slot_suffix),
               "struct bootloader_control has wrong size");
 #endif

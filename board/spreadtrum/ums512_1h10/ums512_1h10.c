@@ -198,18 +198,27 @@ void board_boot_mode_regist(CBOOT_MODE_ENTRY *array)
 	MODE_REGIST(CMD_NORMAL_MODE, normal_mode);
 	MODE_REGIST(CMD_RECOVERY_MODE, recovery_mode);
 	MODE_REGIST(CMD_FASTBOOT_MODE, fastboot_mode);
-	MODE_REGIST(CMD_WATCHDOG_REBOOT, watchdog_mode);
-	MODE_REGIST(CMD_AP_WATCHDOG_REBOOT, ap_watchdog_mode);
-	MODE_REGIST(CMD_UNKNOW_REBOOT_MODE, unknow_reboot_mode);
-	MODE_REGIST(CMD_PANIC_REBOOT, panic_reboot_mode);
+	/*
+	 * rg-rotate-linux (Track 1): warm-reset / reboot-cause modes are
+	 * effectively a normal user boot, but the stock handlers drive the
+	 * panel with BACKLIGHT_OFF (brightness 0) and stamp a divergent
+	 * bootmode env -> warm reset comes up panel-lit-but-dark. Re-point them
+	 * all at normal_mode so A/B/C take one identical BACKLIGHT_ON path with
+	 * a clean (no bootmode=) cmdline. Recovery/fastboot/calibration keep
+	 * their dedicated handlers.
+	 */
+	MODE_REGIST(CMD_WATCHDOG_REBOOT, normal_mode);
+	MODE_REGIST(CMD_AP_WATCHDOG_REBOOT, normal_mode);
+	MODE_REGIST(CMD_UNKNOW_REBOOT_MODE, normal_mode);
+	MODE_REGIST(CMD_PANIC_REBOOT, normal_mode);
 	MODE_REGIST(CMD_AUTODLOADER_REBOOT, autodloader_mode);
-	MODE_REGIST(CMD_SPECIAL_MODE, special_mode);
+	MODE_REGIST(CMD_SPECIAL_MODE, normal_mode);
 	MODE_REGIST(CMD_CHARGE_MODE, charge_mode);
-	MODE_REGIST(CMD_ENGTEST_MODE,engtest_mode);
+	MODE_REGIST(CMD_ENGTEST_MODE, engtest_mode);
 	/*MODE_REGIST(CMD_FACTORYTEST_MODE, factorytest_mode);*/
 	MODE_REGIST(CMD_CALIBRATION_MODE, calibration_mode);
 	MODE_REGIST(CMD_EXT_RSTN_REBOOT_MODE, normal_mode);
-	MODE_REGIST(CMD_IQ_REBOOT_MODE, iq_mode);
+	MODE_REGIST(CMD_IQ_REBOOT_MODE, normal_mode);
 	MODE_REGIST(CMD_ALARM_MODE, alarm_mode);
 	MODE_REGIST(CMD_SPRDISK_MODE, sprdisk_mode);
 	MODE_REGIST(CMD_AUTOTEST_MODE, autotest_mode);

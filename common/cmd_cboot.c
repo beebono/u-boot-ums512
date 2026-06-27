@@ -358,8 +358,8 @@ extern int s_is6000F;
 #ifdef CONFIG_SECBOOT
 extern bool get_hmd_configs();
 extern int get_lcs(uint32_t *p_lcs);
-int s_efused = 0;
 #endif
+int s_efused = 0;
 
 int do_cboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 {

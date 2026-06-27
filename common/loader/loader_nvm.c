@@ -60,9 +60,7 @@ unsigned char root_of_trust_str[ROOT_OF_TRUST_MAXSIZE] __attribute__((aligned(40
 unsigned char vendorboot_cmdline[VENDOR_BOOT_ARGS_SIZE];
 #endif
 
-#ifdef CONFIG_SECBOOT
 extern int s_efused;
-#endif
 
 DECLARE_GLOBAL_DATA_PTR;
 

@@ -86,12 +86,12 @@ inline int load_cp_boot_code(void *loader)
 
 #ifdef CONFIG_SP_DDR_BOOT
 extern int load_sp_boot_code(void);
-inline int get_sp_bootcode_size(void)
+int get_sp_bootcode_size(void)
 {
 	return sizeof(sp_loader)/sizeof(u32);
 }
 
-inline void *get_sp_bootcode_buf(void)
+void *get_sp_bootcode_buf(void)
 {
 	return &sp_loader[0];
 }

@@ -6,7 +6,9 @@
 #include "logo_bin.h"
 
 extern unsigned int g_charger_mode;
-extern int do_fastboot(void);
+#ifdef CONFIG_CMD_FASTBOOT
+extern int do_fastboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[]);
+#endif
 extern void lcd_printf(const char *fmt, ...);
 void lcd_enable(void);
 extern void fastboot_lcd_printf(void);
@@ -221,7 +223,11 @@ void fastboot_mode(void)
 	get_secboot_base_from_dt();
 #endif
 
-	do_fastboot();
+#ifdef CONFIG_CMD_FASTBOOT
+	do_fastboot(NULL, 0, 0, NULL);
+#else
+	debugf("fastboot command support is not built; skipping fastboot mode handler\n");
+#endif
 
 	return;
 }
@@ -298,8 +304,17 @@ void charge_mode(void)
 	debugf("enter\n");
 
 	stop_watchdog();
-	g_charger_mode = 1;
-	setenv("bootmode", "charger");
+	/*
+	 * rg-rotate-linux: force normal boot when VBUS-at-poweron triggers
+	 * charge_mode(). Setting g_charger_mode=1 makes vlx_nand_boot take
+	 * a partial-init path that hands a backlight-off / charger-format
+	 * panel state to Linux, producing a fade-with-chromatic-artifacts
+	 * symptom on the kernel's mainline DSI bring-up. We don't run the
+	 * Android charger UI, so neither the global nor the env var serves
+	 * us; keep both disabled and fall through to the normal video path.
+	 */
+	/* g_charger_mode = 1; */
+	/* setenv("bootmode", "charger"); */
 	vlx_nand_boot(BOOT_PART, BACKLIGHT_ON, LCD_ON);
 
 }
@@ -370,4 +385,3 @@ void apkmmi_auto_mode(void)
 	setenv("bootmode", "apkmmi_auto_mode");
 	vlx_nand_boot(BOOT_PART, BACKLIGHT_ON, LCD_ON);
 }
-

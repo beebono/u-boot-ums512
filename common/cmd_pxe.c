@@ -793,7 +793,10 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 	/* Try bootm for legacy and FIT format image */
 	if (genimg_get_format(buf) != IMAGE_FORMAT_INVALID)
 		do_bootm(cmdtp, 0, bootm_argc, bootm_argv);
-#ifdef CONFIG_CMD_BOOTZ
+#ifdef CONFIG_CMD_BOOTI
+	else
+		do_booti(cmdtp, 0, bootm_argc, bootm_argv);
+#elif defined(CONFIG_CMD_BOOTZ)
 	/* Try booting a zImage */
 	else
 		do_bootz(cmdtp, 0, bootm_argc, bootm_argv);

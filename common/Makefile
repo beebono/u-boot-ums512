@@ -290,7 +290,7 @@ obj-y += command.o
 obj-y += s_record.o
 obj-y += xyzModem.o
 obj-y += cmd_disk.o
-obj-y += nvmerge.o
+obj-$(CONFIG_NVMERGE) += nvmerge.o
 ifdef CONFIG_DDR_BOOT
 obj-y += sprd_ddr_rw.o
 else
