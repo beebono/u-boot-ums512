@@ -235,6 +235,7 @@ struct panel_info {
 	bool is_oled;
 	bool is_dsi_switch;
 	bool dual_dsi_en;
+	bool lcd_no_id;
 };
 
 struct panel_ops {

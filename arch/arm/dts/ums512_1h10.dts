@@ -10,9 +10,10 @@
 
 #include "ums512.dtsi"
 #include "sc2730.dtsi"
-#include "lcd/lcd_lianchuang_mipi_fhd.dtsi"
-#include "lcd/lcd_dijing_2A4N3_truly_mipi_fhd.dtsi"
-#include "lcd/lcd_dijing_nt36523_truly_mipi_fhd.dtsi"
+#include "lcd/lcd_rgrotate_mipi_720.dtsi"
+//#include "lcd/lcd_lianchuang_mipi_fhd.dtsi"
+//#include "lcd/lcd_dijing_2A4N3_truly_mipi_fhd.dtsi"
+//#include "lcd/lcd_dijing_nt36523_truly_mipi_fhd.dtsi"
 //#include "lcd/lcd_td4310_truly_mipi_fhd.dtsi"
 //#include "lcd/lcd_ssd2092_truly_mipi_fhd.dtsi"
 //#include "lcd/lcd_ssd2092_truly_mipi_fhd_v2.dtsi"
@@ -175,6 +176,10 @@
 		sprd,lcd-lcm1v8en-gpio = <136>;
 		sprd,lcd-reset-gpio = <50>;
 	};
+};
+
+&{/lcds} {
+	panel-drivers = <&lcd_rgrotate_mipi_720>;
 };
 
 &spi0 {
