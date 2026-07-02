@@ -491,6 +491,56 @@ void putc(const char c)
 	}
 }
 
+#ifdef CONFIG_SPRD_LOG
+/*
+ * Capture console output into the DRAM log buffer (raw-dumped to the
+ * uboot_log partition by the extlinux diagnostics). Lives in puts() so that
+ * both printf() (which funnels through puts) and direct puts() callers —
+ * e.g. the bootm/booti error paths — are captured.
+ */
+static void sprd_log_capture(const char *s, uint i)
+{
+#ifdef CONFIG_DTS_MEM_LAYOUT
+	if (log_buffer_enabled_flag != 1)
+		return;
+#endif
+	if (!p_log_buffer || !p_log_buffer->addr)
+		return;
+
+	/*
+	 * simplly add timestamp on the head of each line,
+	 *   magic number 11 is strlen("[%08d] ")
+	 */
+	if (i > 0 && (p_log_buffer->spare - 1) >= (i + 11)) {
+		static int lastn = 1;
+		char tmp[12];
+
+		if (lastn) {
+			sprintf(tmp, "[%08d] ", SCI_GetTickCount() & 0x52FFFFFF);
+			memcpy(p_log_buffer->pointer, tmp, 11);
+			p_log_buffer->used += 11;
+			p_log_buffer->pointer += 11;
+			p_log_buffer->spare = p_log_buffer->size - p_log_buffer->used;
+			lastn = 0;
+		}
+		if (s[i - 1] == '\n')
+			lastn = 1;
+
+		memcpy(p_log_buffer->pointer, s, i);
+		p_log_buffer->used += i;
+		p_log_buffer->pointer += i;
+		p_log_buffer->spare = p_log_buffer->size - p_log_buffer->used;
+
+		if (p_log_buffer->log2pc_start != p_log_buffer->pointer) {
+			/* Write the string to PC */
+			if (!log2pc(p_log_buffer->log2pc_start,
+					p_log_buffer->pointer - p_log_buffer->log2pc_start))
+				p_log_buffer->log2pc_start = p_log_buffer->pointer;
+		}
+	}
+}
+#endif
+
 void puts(const char *s)
 {
 #ifdef CONFIG_SANDBOX
@@ -498,6 +548,10 @@ void puts(const char *s)
 		os_puts(s);
 		return;
 	}
+#endif
+
+#ifdef CONFIG_SPRD_LOG
+	sprd_log_capture(s, strlen(s));
 #endif
 
 #ifdef CONFIG_SILENT_CONSOLE
@@ -550,50 +604,10 @@ int printf(const char *fmt, ...)
 
 	va_end(args);
 
-#ifdef CONFIG_SPRD_LOG
-	/* used for log
-	*/
-#ifdef CONFIG_DTS_MEM_LAYOUT
-	if (log_buffer_enabled_flag == 1) {
-#endif
-		/*
-		 * simplly add timestamp on the head of each line,
-		 *   magic number 11 is strlen("[%08d] ")
-		 */
-		if (i > 0 && (p_log_buffer->spare - 1) >= (i + 11)) {
-			static int lastn = 1;
-			char tmp[12];
-
-			if (lastn) {
-				sprintf(tmp, "[%08d] ", SCI_GetTickCount() & 0x52FFFFFF);
-				memcpy(p_log_buffer->pointer, tmp, 11);
-				p_log_buffer->used += 11;
-				p_log_buffer->pointer += 11;
-				p_log_buffer->spare = p_log_buffer->size - p_log_buffer->used;
-				lastn = 0;
-			}
-			if (printbuffer[i - 1] == '\n')
-				lastn = 1;
-
-			memcpy(p_log_buffer->pointer, printbuffer, i);
-			p_log_buffer->used += i;
-			p_log_buffer->pointer += i;
-			p_log_buffer->spare = p_log_buffer->size - p_log_buffer->used;
-
-			if (p_log_buffer->log2pc_start != p_log_buffer->pointer) {
-				/* Write the string to PC */
-				if (!log2pc(p_log_buffer->log2pc_start,
-						p_log_buffer->pointer - p_log_buffer->log2pc_start))
-					p_log_buffer->log2pc_start = p_log_buffer->pointer;
-			}
-		}
-
-#ifdef CONFIG_DTS_MEM_LAYOUT
-	}
-#endif
-
-
-#endif
+	/*
+	 * Log capture happens in puts() (sprd_log_capture) so that direct
+	 * puts() callers are recorded too.
+	 */
 
 	/* Print the string */
 	puts(printbuffer);

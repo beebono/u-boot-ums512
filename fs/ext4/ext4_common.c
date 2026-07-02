@@ -2225,8 +2225,13 @@ int ext4fs_mount(unsigned part_length)
 		goto fail;
 	}
 	/* Make sure this is an ext2 filesystem. */
-	if (__le16_to_cpu(data->sblock.magic) != EXT2_MAGIC)
+	if (__le16_to_cpu(data->sblock.magic) != EXT2_MAGIC) {
+		printf("[ext4dbg] bad sb magic 0x%04x (inodes %u blocks %u)\n",
+		       __le16_to_cpu(data->sblock.magic),
+		       __le32_to_cpu(data->sblock.total_inodes),
+		       __le32_to_cpu(data->sblock.total_blocks));
 		goto fail;
+	}
 
 	if (__le32_to_cpu(data->sblock.revision_level == 0))
 		fs->inodesz = 128;

@@ -576,6 +576,21 @@ void vlx_entry(uchar *dt_addr)
 		!bootmode ? "normal" : bootmode, consume_time,
 		!bootcause_cmdline ? "Bootcause hasn't been set yet" : bootcause_cmdline,
 		!pwroffcause_cmdline ? "pwroffcause hasn't been set yet" : pwroffcause_cmdline);
+#if defined(CONFIG_SPRD_LOG) && defined(CONFIG_LOG_2_EMMC)
+	/*
+	 * write_log()/write_log_last() are gated on DEBUG and on
+	 * get_boot_role() != DOWNLOAD; dump the raw printf capture buffer to
+	 * offset 0 of uboot_log unconditionally so it survives the kernel jump
+	 * (read back with: spd_dump ... r uboot_log).
+	 */
+	if (p_log_buffer && p_log_buffer->addr && p_log_buffer->used) {
+		if (common_raw_write(UBOOT_LOG_PARTITION,
+				     (uint64_t)p_log_buffer->used, (uint64_t)0,
+				     (uint64_t)LAST_LOG_PARTITION_OFFSET,
+				     (char *)p_log_buffer->addr))
+			printf("[uboot] uboot_log dump failed\n");
+	}
+#endif
 
 	/* the last time to write log */
 	write_log_last();

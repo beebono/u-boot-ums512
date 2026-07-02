@@ -336,6 +336,20 @@ static int sdhci_send_command(struct mmc *mmc, struct mmc_cmd *cmd,
 	stat = sdhci_readl(host, SDHCI_INT_STATUS);
 	sdhci_writel(host, SDHCI_INT_ALL_MASK, SDHCI_INT_STATUS);
 	if (!ret) {
+#ifdef CONFIG_MMC_SDMA
+		/*
+		 * DMA read done: invalidate the CPU's cache lines over the
+		 * destination before the caller reads it. The pre-DMA
+		 * flush_cache() is not sufficient — lines can be refilled
+		 * from DRAM before the DMA lands, deterministically handing
+		 * the caller back its own pre-read buffer content (observed
+		 * as all-zero ext4 superblocks from zalloc'ed buffers).
+		 */
+		if (data && (data->flags == MMC_DATA_READ) && is_aligned)
+			invalidate_dcache_range(
+				start_addr & ~((unsigned long)ARCH_DMA_MINALIGN - 1),
+				ALIGN(start_addr + trans_bytes, ARCH_DMA_MINALIGN));
+#endif
 		if ((host->quirks & SDHCI_QUIRK_32BIT_DMA_ADDR) &&
 		    !is_aligned && (data->flags == MMC_DATA_READ))
 			memcpy(data->dest, aligned_buffer, trans_bytes);

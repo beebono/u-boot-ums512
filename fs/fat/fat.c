@@ -50,6 +50,14 @@ int disk_read(__u32 block, __u32 nr_blocks, void *buf)
 	if (!cur_dev || !cur_dev->block_read)
 		return -1;
 
+	/*
+	 * Sub-sector file tails legitimately request 0 blocks (get_cluster:
+	 * idx = size / sect_size == 0); mmc_bread correctly returns 0 for
+	 * them, which the vendor error-remap below would turn into -1.
+	 */
+	if (nr_blocks == 0)
+		return 0;
+
 	ret = cur_dev->block_read(cur_dev->dev,
 			cur_part_info.start + block, nr_blocks, buf);
 
@@ -288,7 +296,8 @@ get_cluster(fsdata *mydata, __u32 clustnum, __u8 *buffer, unsigned long size)
 		while (size >= mydata->sect_size) {
 			ret = disk_read(startsect++, 1, tmpbuf);
 			if (ret != 1) {
-				debug("Error reading data (got %d)\n", ret);
+				printf("[fatdbg] bounce read sect %u x1 got %d\n",
+				       startsect - 1, ret);
 				return -1;
 			}
 
@@ -300,7 +309,8 @@ get_cluster(fsdata *mydata, __u32 clustnum, __u8 *buffer, unsigned long size)
 		idx = size / mydata->sect_size;
 		ret = disk_read(startsect, idx, buffer);
 		if (ret != idx) {
-			debug("Error reading data (got %d)\n", ret);
+			printf("[fatdbg] bulk read sect %u x%u buf %p got %d\n",
+			       startsect, idx, buffer, ret);
 			return -1;
 		}
 		startsect += idx;
@@ -313,7 +323,8 @@ get_cluster(fsdata *mydata, __u32 clustnum, __u8 *buffer, unsigned long size)
 
 		ret = disk_read(startsect, 1, tmpbuf);
 		if (ret != 1) {
-			debug("Error reading data (got %d)\n", ret);
+			printf("[fatdbg] tail read sect %u x1 got %d\n",
+			       startsect, ret);
 			return -1;
 		}
 

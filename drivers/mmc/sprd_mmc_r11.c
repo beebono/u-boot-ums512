@@ -2505,6 +2505,15 @@ struct mmc *board_sd_init(void)
 	sprd_host_init(sd_dev);
 	mmc = find_mmc_device(sd_dev);
 	if (mmc) {
+		/*
+		 * The SD high-speed DLL delay from sdio_cfg.c is a fixed value
+		 * tuned for the reference board (no tuning sweep like eMMC
+		 * HS200 gets) and gives marginal data reads on this unit
+		 * ("Error reading cluster"). Cap the card at default speed
+		 * (25 MHz) where the sampling window is wide.
+		 */
+		((struct mmc_config *)mmc->cfg)->host_caps &=
+			~(MMC_MODE_HS | MMC_MODE_HS_52MHz);
 		ret = mmc_init(mmc);
 		if (ret < 0) {
 			debugf("sdcard init failed %d\n", ret);

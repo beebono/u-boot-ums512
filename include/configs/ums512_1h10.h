@@ -26,7 +26,10 @@
 #define CONFIG_SPL_BAK
 #define CONFIG_MISC_INIT_R                     /* call misc_init_r()	      */
 #define CONFIG_BOARD_LATE_INIT         /* call board_late_init() */
-/* #define CONFIG_SUPPORT_RAW_INITRD */
+/* extlinux passes the initrd as raw addr:size (initramfs.cpio.gz, no uImage
+ * wrapper); without this boot_get_ramdisk rejects it ("Wrong Ramdisk Image
+ * Format"). */
+#define CONFIG_SUPPORT_RAW_INITRD
 
 /* support wifi mode for temp */
 #define CONFIG_WIFI_MODE
@@ -182,6 +185,8 @@
 #define CONFIG_CMD_ECHO
 #define CONFIG_CMD_SOURCE
 #define CONFIG_CMD_FAT
+#define CONFIG_CMD_EXT4
+#define CONFIG_CMD_FS_GENERIC
 #define CONFIG_DOS_PARTITION
 
 
@@ -231,16 +236,25 @@
 #define CONFIG_BOOTCOMMAND \
 	"run bootcmd_linux; echo extlinux scan failed; sleep 3; reset"
 #define CONFIG_BOOTDELAY		0
+/*
+ * Load addresses must stay clear of the SoC carve-outs (stock DTB
+ * reserved-memory): iq-mem 0x90000000+64M, sml/tos 0x94000000-0x9a000000,
+ * audio-mem 0x87400000+4M. The old defaults put the FDT and pxefile inside
+ * tos-mem and the ramdisk inside iq-mem. kernel_addr_r is the final booti
+ * placement (DDR base + 0x80000, matching the vendor KERNEL_ADR), making
+ * booti's relocation memmove a no-op. initrd/fdt are used in place
+ * (initrd_high/fdt_high = ~0) instead of being lmb-relocated into
+ * top-of-RAM regions shared with the framebuffer carve-outs.
+ */
 #define	CONFIG_EXTRA_ENV_SETTINGS					\
 	"mtdparts=" MTDPARTS_DEFAULT "\0"				\
-	"kernel_addr_r=0x88200000\0"					\
-	"ramdisk_addr_r=0x93000000\0"				\
-	"fdt_addr_r=0x97f00000\0"					\
-	"pxefile_addr_r=0x97e00000\0"				\
+	"kernel_addr_r=0x80080000\0"					\
+	"ramdisk_addr_r=0x85000000\0"				\
+	"fdt_addr_r=0x84e00000\0"					\
+	"pxefile_addr_r=0x84d00000\0"				\
+	"initrd_high=0xffffffffffffffff\0"			\
+	"fdt_high=0xffffffffffffffff\0"				\
 	"bootfile=/extlinux/extlinux.conf\0"			\
-	"bootfile_alt=/boot/extlinux/extlinux.conf\0"		\
-	"bootdevs=0 1 2 3\0"					\
-	"bootparts=42 43\0"						\
 	"bootcmd_linux=extlinux_scan\0"
 
 
@@ -317,6 +331,7 @@
 /*file system config*/
 #define CONFIG_FAT_WRITE
 #define CONFIG_FS_EXT4
+#define CONFIG_FS_FAT
 
 #define CONFIG_MMC_HS200_SUPPORT
 
@@ -369,6 +384,7 @@
 #define MISCDATA_CAPACITY_CHECK_SIZE	4
 
 /*for device tree*/
+#define CONFIG_OF_LIBFDT
 #define DT_PLATFROM_ID 512
 #define DT_HARDWARE_ID 1
 #define DT_SOC_VER     0x20000

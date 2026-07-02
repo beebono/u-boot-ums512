@@ -16,6 +16,7 @@
 #include <image.h>
 #include <lmb.h>
 #include <malloc.h>
+#include <sprd_common_rw.h>
 #include <mapmem.h>
 #include <nand.h>
 #include <asm/byteorder.h>
@@ -655,6 +656,7 @@ static int booti_setup(bootm_headers_t *images)
 {
 	struct Image_header *ih;
 	uint64_t dst;
+	uint64_t text_offset;
 
 	ih = (struct Image_header *)map_sysmem(images->ep, 0);
 
@@ -662,7 +664,7 @@ static int booti_setup(bootm_headers_t *images)
 		puts("Bad Linux ARM64 Image magic!\n");
 		return 1;
 	}
-	
+
 	if (ih->image_size == 0) {
 		puts("Image lacks image_size field, assuming 16MiB\n");
 		ih->image_size = (16 << 20);
@@ -671,12 +673,23 @@ static int booti_setup(bootm_headers_t *images)
 	/*
 	 * If we are not at the correct run-time location, set the new
 	 * correct location and then move the image there.
+	 *
+	 * Modern relocatable Images report text_offset = 0, which would land
+	 * the kernel at the very bottom of DRAM — on this SoC that region
+	 * holds the ddrbist/sysdumpinfo scratch pages and CPU_RELEASE_ADDR,
+	 * and every proven boot (vendor cboot path, KERNEL_ADR) runs the
+	 * kernel at base + 0x80000. Match that placement.
 	 */
-	dst = gd->bd->bi_dram[0].start + le32_to_cpu(ih->text_offset);
+	text_offset = le32_to_cpu(ih->text_offset);
+	if (text_offset == 0)
+		text_offset = 0x80000;
+
+	dst = gd->bd->bi_dram[0].start + text_offset;
 	if (images->ep != dst) {
 		void *src;
 
-		debug("Moving Image from 0x%lx to 0x%llx\n", images->ep, dst);
+		printf("[uboot] booti: moving Image 0x%lx -> 0x%llx (%u bytes)\n",
+		       images->ep, dst, le32_to_cpu(ih->image_size));
 
 		src = (void *)images->ep;
 		images->ep = dst;
@@ -734,8 +747,23 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 	/* Consume 'booti' */
 	argc--; argv++;
 
-	if (booti_start(cmdtp, flag, argc, argv, &images))
+	if (booti_start(cmdtp, flag, argc, argv, &images)) {
+#if defined(CONFIG_SPRD_LOG) && defined(CONFIG_LOG_2_EMMC)
+		/*
+		 * Final log flush before the jump so the Image relocation line and
+		 * anything after the label_boot flush lands in uboot_log (see
+		 * extlinux_diag.c diag_log_dump for the rationale).
+		 */
+		if (p_log_buffer && p_log_buffer->addr && p_log_buffer->used) {
+			if (common_raw_write(UBOOT_LOG_PARTITION,
+					     (uint64_t)p_log_buffer->used, (uint64_t)0,
+					     (uint64_t)LAST_LOG_PARTITION_OFFSET,
+					     (char *)p_log_buffer->addr))
+				printf("[uboot] uboot_log dump failed\n");
+		}
+#endif
 		return 1;
+	}
 
 	/*
 	 * We are doing the BOOTM_STATE_LOADOS state ourselves, so must
