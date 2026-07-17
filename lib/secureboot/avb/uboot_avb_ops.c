@@ -288,16 +288,12 @@ AvbIOResult get_unique_guid_for_partition(AvbOps* ops,
                                           const char* partition,
                                           char* guid_buf,
                                           size_t guid_buf_size) {
-#ifdef CONFIG_VBOOT_SYSTEMASROOT
   debug("enter get_unique_guid_for_partition().\n");
   debug("partition: %s  guid_buf_size = %d \n", partition, guid_buf_size);
   memset(guid_buf, 0, guid_buf_size);
   get_img_partition_uuid(partition, guid_buf);
   debug("guid_buf: %s \n", guid_buf);
   return AVB_IO_RESULT_OK;
-#else
-  return AVB_IO_RESULT_OK;
-#endif
 }
 AvbIOResult get_size_of_partition(AvbOps* ops,
                                   const char* partition,
@@ -358,6 +354,7 @@ int avb_ops_new(void)
   g_avb_ops.write_rollback_index = write_rollback_index;
   g_avb_ops.read_is_device_unlocked = read_is_device_unlocked;
   g_avb_ops.get_unique_guid_for_partition = get_unique_guid_for_partition;
+  g_avb_ops.get_size_of_partition = get_size_of_partition;
   g_avb_ops.user_data = 0x00;
 
   g_ulAvbCheckType = AVB_CHECK_BOOTING;

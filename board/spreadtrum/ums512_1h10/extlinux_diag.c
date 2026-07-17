@@ -67,8 +67,8 @@ static int try_sysboot(int dev, int part, const char *path)
 	int ret;
 
 	printf("[uboot] try mmc %d:%d %s\n", dev, part, path);
-	lcd_printf("boot mmc%d:%d", dev, part);
-	lcd_printf("%s", path);
+	lcd_printf("boot mmc%d:%d\n", dev, part);
+	lcd_printf("%s\n", path);
 
 	/* flush the log before sysboot: a successful boot never returns */
 	diag_log_dump();
@@ -81,7 +81,7 @@ static int try_sysboot(int dev, int part, const char *path)
 		return 0;
 
 	printf("[uboot] miss mmc %d:%d %s (%d)\n", dev, part, path, ret);
-	lcd_printf("miss mmc%d:%d", dev, part);
+	lcd_printf("miss mmc%d:%d\n", dev, part);
 	return ret;
 }
 
@@ -102,7 +102,7 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	 * panel). Same pattern as fastboot_mode().
 	 */
 	logo_display(LOGO_NORMAL_POWER, BACKLIGHT_ON, LCD_DISPLAY_ENABLE);
-	lcd_printf("extlinux scan");
+	lcd_printf("extlinux scan\n");
 
 	/*
 	 * The boot path only registers the eMMC host (mmc dev 0); SDIO0
@@ -111,11 +111,11 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	 */
 	sd_present = board_sd_init() != NULL;
 	if (sd_present) {
-		printf("[uboot] sd card registered as mmc 1\n");
-		lcd_printf("sd: mmc 1");
+		printf("[uboot] sd card registered\n");
+		lcd_printf("Found an SD Card\n");
 	} else {
 		printf("[uboot] no sd card found\n");
-		lcd_printf("sd: none");
+		lcd_printf("No SD Card found\n");
 	}
 	/* persist everything the LCD/panel probe just printed */
 	diag_log_dump();
@@ -141,7 +141,7 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	}
 
 	printf("[uboot] extlinux scan failed\n");
-	lcd_printf("extlinux failed");
+	lcd_printf("extlinux failed\n");
 	diag_log_dump();
 	return CMD_RET_FAILURE;
 }

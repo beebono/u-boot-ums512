@@ -46,13 +46,13 @@ static void gpio_getid(void)
 		get_id[i]=sprd_gpio_get(NULL, lcd_id[i]);
 		printk("get_id[%d]=%d\n",i,get_id[i]);
 	}
-	if(get_id[0] == 0 && get_id[1] > 0 && get_id[2] > 0)
+	if(get_id[0] == 0 && get_id[1]  > 0 && get_id[2] >= 0)
 		lcd_version = 0;	
 	if(get_id[0] == 0 && get_id[1] == 0 && get_id[2] == 0)
 		lcd_version = 1;
-	if(get_id[0] == 0 && get_id[1] == 0 && get_id[2] > 0)
+	if(get_id[0] == 0 && get_id[1] == 0 && get_id[2]  > 0)
 		lcd_version = 2;
-	if(get_id[0]  > 0 && get_id[1]  > 0 && get_id[2] > 0)
+	if(get_id[0]  > 0 && get_id[1]  > 0 && get_id[2]  > 0)
 		lcd_version = 3;
 	return;
 }

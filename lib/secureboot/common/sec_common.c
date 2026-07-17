@@ -682,8 +682,15 @@ static void vboot_replace_vbmeta_size_and_digest(void) {
 	debugf("avb_check_image() ret is %d.\n", ret);
 
     if (avb_slot_data[0]) {
-        debugf("avb_slot_data[0]->cmdline is %s.\n", avb_slot_data[0]->cmdline);
-        printf("g_sprd_vboot_cmdline is %s.\n", g_sprd_vboot_cmdline);
+		if (g_sprd_vboot_cmdline[0] == '\0') {
+			debugf("g_sprd_vboot_cmdline is empty! Falling back to avb_slot_data[0]->cmdline\n");
+			if (avb_slot_data[0] && avb_slot_data[0]->cmdline) {
+				snprintf((char *)g_sprd_vboot_cmdline,
+					 SPRD_VBOOT_CMDLINE_MAXSIZE,
+					 "%s",
+					 avb_slot_data[0]->cmdline);
+			}
+		}
 
         strncpy((char *)strstr(g_sprd_vboot_cmdline, "androidboot.vbmeta.size"),
             strstr(avb_slot_data[0]->cmdline, "androidboot.vbmeta.size"), (size_t)120);
@@ -1236,7 +1243,7 @@ void vboot_secure_process_flow(char *partition_name)
 void vboot_secure_process_prepare(void)
 {
 	unsigned char sprd_vboot_key[SPRD_RSA4096PUBK_HASHLEN] = {0};
-	sprd_get_vboot_key(UBOOT_START, sprd_vboot_key, GET_FROM_RAM);
+	sprd_get_vboot_key(UBOOT_START, sprd_vboot_key, GET_FROM_EMMC);
 
 #ifdef CONFIG_VBOOT_DUMP
 	dumpHex("vboot pubk", sprd_vboot_key, SPRD_RSA4096PUBK_HASHLEN);

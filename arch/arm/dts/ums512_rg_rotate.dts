@@ -1,7 +1,5 @@
 /*
- * Spreadtrum SP9860g board DTS file
- *
- * Copyright (C) 2016, Spreadtrum Communications Inc.
+ * Anbernic RG Rotate board DTS file
  *
  * This file is licensed under a dual GPLv2 or X11 license.
  */
@@ -10,13 +8,7 @@
 
 #include "ums512.dtsi"
 #include "sc2730.dtsi"
-#include "lcd/lcd_lianchuang_mipi_fhd.dtsi"
-#include "lcd/lcd_dijing_2A4N3_truly_mipi_fhd.dtsi"
-#include "lcd/lcd_dijing_nt36523_truly_mipi_fhd.dtsi"
-//#include "lcd/lcd_td4310_truly_mipi_fhd.dtsi"
-//#include "lcd/lcd_ssd2092_truly_mipi_fhd.dtsi"
-//#include "lcd/lcd_ssd2092_truly_mipi_fhd_v2.dtsi"
-//#include "lcd/lcd_dummy_mipi.dtsi"
+#include "lcd/lcd_gt911_mipi_ab021.dtsi"
 
 / {
 	model = "Spreadtrum ums512_1h10 Board";
@@ -158,35 +150,20 @@
 		sprd,fgu-blk-index = <3>;
 	};
 
-	sgm41512-charger {
-		compatible = "sprd,sgm41512-charger";
-		sprd,sgm41512-i2c-bus = <4>;
-	};
-
 	sprd-sensorhub {
 		compatible = "sprd-sensorhub-uboot";
 	};
 
 	lcd-panel {
 		compatible = "sprd,generic-mipi-panel";
-		sprd,lcd-avdd-gpio = <132>;
-		sprd,lcd-avee-gpio = <133>;
-		sprd,lcd-tp3v3en-gpio = <156>;
-		sprd,lcd-lcm1v8en-gpio = <136>;
+		sprd,lcd-avdd-gpio = <15>;
+		sprd,lcd-avee-gpio = <138>;
 		sprd,lcd-reset-gpio = <50>;
 	};
 };
 
 &spi0 {
 	status = "okay";
-	flash@0 {//this just for example
-		#address-cells = <1>;
-		#size-cells = <0>;
-		compatible = "sprd,spi-nand0";
-		reg = <0>;
-		spi-max-frequency = <20000000>;
-		spi-mode-out = <2>;
-	};
 };
 &spi1 {
 	status = "okay";

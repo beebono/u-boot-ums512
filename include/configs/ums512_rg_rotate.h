@@ -21,14 +21,19 @@
 
 /*build aarch64 u-boot.elf*/
 #define CONFIG_REMAKE_ELF
+#define CONFIG_CHIP_UID
 #define CONFIG_SPRD_UID
 #define CONFIG_SYS_NO_FLASH
 #define CONFIG_SPL_BAK
 #define CONFIG_MISC_INIT_R                     /* call misc_init_r()	      */
 #define CONFIG_BOARD_LATE_INIT         /* call board_late_init() */
-//#define CONFIG_SUPPORT_RAW_INITRD
+/* extlinux passes the initrd as raw addr:size (initramfs.cpio.gz, no uImage
+ * wrapper); without this boot_get_ramdisk rejects it ("Wrong Ramdisk Image
+ * Format"). */
+#define CONFIG_SUPPORT_RAW_INITRD
 
 /* support wifi mode for temp */
+#define PRODUCT_WIFI_ONLY
 #define CONFIG_WIFI_MODE
 
 /* support get hw version*/
@@ -39,8 +44,8 @@
 #define CONFIG_ERASE_SPL_AUTO_DOWNLOAD
 
 /* Cache Definitions */
-//#define CONFIG_SYS_DCACHE_OFF
-//#define CONFIG_SYS_ICACHE_OFF
+/* #define CONFIG_SYS_DCACHE_OFF */
+/* #define CONFIG_SYS_ICACHE_OFF */
 
 #define CONFIG_IDENT_STRING		"SHARKL5PRO"
 
@@ -87,12 +92,12 @@
 /* SharkL5Pro Lowpower feature support start */
 #define CONFIG_SUPPORT_LOWPOWER
 
-// LPC Enable Macro
+/* LPC Enable Macro */
 #define CONFIG_AON_LPC_EN
 #define CONFIG_AP_LPC_EN
 #define CONFIG_CLOCK_AUTO_GATE_EN
 
-// DCDC Drop Enable Macro
+/* DCDC Drop Enable Macro */
 #define CONFIG_DCDCCORE_DEEP_DROP_EN	1
 #define CONFIG_DCDCCORE_DEEP_DROP_VOL 	600 //mV
 
@@ -164,23 +169,27 @@
 /* Command line configuration */
 #define CONFIG_MENU
 /*#define CONFIG_MENU_SHOW*/
-#define CONFIG_CMD_CACHE
+/*#define CONFIG_CMD_CACHE*/
 #define CONFIG_CMD_BDI
 #define CONFIG_CMD_DHCP
 #define CONFIG_CMD_PXE
 #define CONFIG_CMD_ENV
+#define CONFIG_CMD_FASTBOOT
 #define CONFIG_CMD_FLASH
 #define CONFIG_CMD_IMI
 #define CONFIG_CMD_MEMORY
 #define CONFIG_CMD_MII
-//#define CONFIG_CMD_NET
+/*#define CONFIG_CMD_NET */
 #define CONFIG_CMD_PING
 #define CONFIG_CMD_SAVEENV
 #define CONFIG_CMD_RUN
-//#define CONFIG_CMD_BOOTD
+/*#define CONFIG_CMD_BOOTD */
+#define CONFIG_CMD_BOOTI
 #define CONFIG_CMD_ECHO
 #define CONFIG_CMD_SOURCE
 #define CONFIG_CMD_FAT
+#define CONFIG_CMD_EXT4
+#define CONFIG_CMD_FS_GENERIC
 #define CONFIG_DOS_PARTITION
 
 
@@ -215,16 +224,40 @@
 #define CONFIG_AUTOBOOT_PROMPT "Press q to abort autoboot in %d seconds"
 #define CONFIG_AUTOBOOT_STOP_STR "q"
 /* UBoot CMD Memtest */
-//#define CONFIG_CMD_MEMTEST
+/*#define CONFIG_CMD_MEMTEST */
 #ifdef CONFIG_CMD_MEMTEST
 #define MEMTEST_NODE {"pre_log_buffer", "logbuffer", "sml-mem", "logobuffer", NULL}
 #endif
 #endif
 
-/* Initial environment variables */
-#define CONFIG_BOOTCOMMAND			"cboot normal"
+/*
+ * This BSP does not have the newer bootstd / bootflow framework, but it does
+ * have classic sysboot+extlinux support. For diagnostic bring-up, try a small
+ * scan over likely eMMC devices/partitions and do not fall back to Android
+ * boot, so scan failures are easier to distinguish on hardware.
+ */
+#define CONFIG_BOOTCOMMAND \
+	"extlinux_scan; cboot; cboot fastboot"
 #define CONFIG_BOOTDELAY		0
-#define	CONFIG_EXTRA_ENV_SETTINGS				"mtdparts=" MTDPARTS_DEFAULT "\0"
+/*
+ * Load addresses must stay clear of the SoC carve-outs (stock DTB
+ * reserved-memory): iq-mem 0x90000000+64M, sml/tos 0x94000000-0x9a000000,
+ * audio-mem 0x87400000+4M. The old defaults put the FDT and pxefile inside
+ * tos-mem and the ramdisk inside iq-mem. kernel_addr_r is the final booti
+ * placement (DDR base + 0x80000, matching the vendor KERNEL_ADR), making
+ * booti's relocation memmove a no-op. initrd/fdt are used in place
+ * (initrd_high/fdt_high = ~0) instead of being lmb-relocated into
+ * top-of-RAM regions shared with the framebuffer carve-outs.
+ */
+#define	CONFIG_EXTRA_ENV_SETTINGS					\
+	"mtdparts=" MTDPARTS_DEFAULT "\0"				\
+	"kernel_addr_r=0x80080000\0"					\
+	"ramdisk_addr_r=0x85000000\0"				\
+	"fdt_addr_r=0x84e00000\0"					\
+	"pxefile_addr_r=0x84d00000\0"				\
+	"initrd_high=0xffffffffffffffff\0"			\
+	"fdt_high=0xffffffffffffffff\0"				\
+	"bootfile=/extlinux/extlinux.conf\0"
 
 
 /* Do not preserve environment */
@@ -251,20 +284,21 @@
 #define CONFIG_BOOTARGS MEM_INIT_PARA" loglevel=7 console=ttyS0,115200n8 init=/init " MTDPARTS_DEFAULT
 
 /*auto boot with normal mode*/
-//#define CONFIG_AUTOBOOT
+/*#define CONFIG_AUTOBOOT */
 
 /*boot with modem*/
-#define BOOT_NATIVE_LINUX_MODEM  1
+/*#define BOOT_NATIVE_LINUX_MODEM  1 */
 
-//#define CONFIG_MINI_TRUSTZONE
+/*#define CONFIG_MINI_TRUSTZONE */
 
+/* We don't actually support LTE, but firmware is based on it... */
 #define CONFIG_SUPPORT_LTE
-#define CONFIG_ADVANCED_LTE
+/*#define CONFIG_ADVANCED_LTE */
 
 #define CONFIG_SUPPORT_AGDSP
 
-//#define CONFIG_SUPPORT_WLTE
-//#define CONFIG_SUPPORT_GSM
+/*#define CONFIG_SUPPORT_WLTE */
+/*#define CONFIG_SUPPORT_GSM */
 
 #define AUDCP_HEADER_STR "SharkL5_AUDCP"
 #define LTE_AGDSP_SIZE  0x00600000
@@ -300,6 +334,7 @@
 /*file system config*/
 #define CONFIG_FAT_WRITE
 #define CONFIG_FS_EXT4
+#define CONFIG_FS_FAT
 
 #define CONFIG_MMC_HS200_SUPPORT
 
@@ -313,9 +348,9 @@
 #define USB3_PHY_TUNE1 0x919e9dec
 #define USB3_PHY_TUNE2 0x0f0560fe
 #define CONFIG_USB_PHY_SHARKL5PRO
-//#define CALIBRATION_FLAG_CP0           0x88AF0000
+/*#define CALIBRATION_FLAG_CP0           0x88AF0000 */
 #define CALIBRATION_FLAG_CP1	0x8da20000
-//#define CONFIG_DWC_OTG
+/*#define CONFIG_DWC_OTG */
 #define CONFIG_MODEM_CALIBERATE
 #define CALIBRATE_ENUM_MS 15000
 #define CALIBRATE_IO_MS 2000
@@ -327,7 +362,7 @@
 #define CONFIG_EFI_PARTITION
 
 /*for sysdump*/
-#define CONFIG_SPRD_SYSDUMP
+/*#define CONFIG_SPRD_SYSDUMP*/
 #define CONFIG_SYS_VSNPRINTF
 #define SPRD_SYSDUMP_MAGIC	RAMDISK_ADR
 #define CONFIG_RAMDUMP_NO_SPLIT /* Don't split sysdump file */
@@ -360,8 +395,8 @@
 #define SIMLOCK_ADR      (0x891FE800+0x4)   //0x4 just for data header
 
 #define KERNEL_ADR      0x80080000
-#define DT_ADR          0x9df00000
-#define RAMDISK_ADR     0xa0000000
+#define DT_ADR          0x84e00000
+#define RAMDISK_ADR     0x85000000
 
 
 /*for modem entry*/
@@ -391,6 +426,7 @@
 #define FB_DOWNLOAD_BUF_SIZE           (CONFIG_SYS_TEXT_BASE - SCRATCH_ADDR-0x800000)
 #define SCRATCH_ADDR_EXT1              (CONFIG_SYS_TEXT_BASE + 32*1024*1024)
 #define FB_DOWNLOAD_BUF_EXT1_SIZE      (224*1024*1024)
+#define CONFIG_FASTBOOT_FLASH
 
 /*uid blk config*/
 #define UID_START 94
@@ -411,7 +447,7 @@
 #define CONFIG_7S_RST_THRESHOLD		15	//7S, hold key down for this time to trigger
 
  /*SMPL config*/
-//#define CONFIG_SMPL_EN
+/*#define CONFIG_SMPL_EN */
 #define CONFIG_SMPL_THRESHOLD 	0		//one step is 0.25S
 
 /* Chip Driver Macro Definitions End*/
@@ -421,9 +457,10 @@
 
 #define CONFIG_DM_SPRD_I2C
 #define CONFIG_SPRD_HW_I2C
+#define CONFIG_VIBRATOR
 
-#define CONFIG_DM_SGM41512
-//#define CONFIG_DM_FAN54015
+/*#define CONFIG_DM_SGM41512 */
+/*#define CONFIG_DM_FAN54015 */
 
 #define CONFIG_DVFS_ADDR		0x60
 #define CINFIG_DVFS_TX_5_REG_ADDR	0x02
@@ -441,14 +478,31 @@
 #define ADI_15BIT_MODE
 #endif
 
-#define CONFIG_ANDROID_AB
-/* direct access prot configuration  */
-//#define CONFIG_DIRECT_ACC_PROT
-/*sharkl5pro dcdc/ldo force on for bringup*/
-//#define CONFIG_DEBUG_DCDCLDO_FORCE_ON
+/* hwfeature fdt fixup */
+#define CONFIG_UBOOT_HWFEATURE \
+	"auto/efuse=auto.efuse,1:T610,2:T700,0:T618"
 
-//sensor
-//#define CONFIG_SENSOR_HUB_UBOOT
+/* secure boot/android compat */
+#define TOS_TRUSTY
+#define CONFIG_TRUSTY_QL_TIPC
+#define CONFIG_SECBOOT
+#define CONFIG_SPRD_SECBOOT
+#define CONFIG_VBOOT_V2
+#define CONFIG_ANDROID_AB
+#define CONFIG_ANDROID_BOOT_IMAGE
+#define PRODUCT_USE_DYNAMIC_PARTITIONS
+/* direct access prot configuration  */
+/*#define CONFIG_DIRECT_ACC_PROT */
+/*sharkl5pro dcdc/ldo force on for bringup*/
+/*#define CONFIG_DEBUG_DCDCLDO_FORCE_ON */
+
+/* UART-less debug through uboot_log */
+/*#define CONFIG_SPRD_RAMLOG */
+/*#define CONFIG_MAKE_MY_RAMLOG_BIG */
+/*#define CONFIG_MAKE_MY_RAMLOG_BIGGER */
+
+/*sensor */
+/*#define CONFIG_SENSOR_HUB_UBOOT */
 #define CONFIG_SENSOR_I2C_MATRIX_BASE  0x32450018
 #define CONFIG_SENSOR_I2C_MATRIX_VALUE  0x197101
 

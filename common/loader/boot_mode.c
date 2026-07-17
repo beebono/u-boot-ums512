@@ -218,7 +218,7 @@ void fastboot_mode(void)
 #ifdef CONFIG_SECBOOT
 	if (get_lock_status() == VBOOT_STATUS_UNLOCK){
 		debugf("INFO: LOCK FLAG IS : UNLOCK!!!\n");
-		lcd_printf("\n   INFO: LOCK FLAG IS : UNLOCK!!!\n");
+		//lcd_printf("\n   INFO: LOCK FLAG IS : UNLOCK!!!\n");
 	}
 	get_secboot_base_from_dt();
 #endif
@@ -304,17 +304,9 @@ void charge_mode(void)
 	debugf("enter\n");
 
 	stop_watchdog();
-	/*
-	 * rg-rotate-linux: force normal boot when VBUS-at-poweron triggers
-	 * charge_mode(). Setting g_charger_mode=1 makes vlx_nand_boot take
-	 * a partial-init path that hands a backlight-off / charger-format
-	 * panel state to Linux, producing a fade-with-chromatic-artifacts
-	 * symptom on the kernel's mainline DSI bring-up. We don't run the
-	 * Android charger UI, so neither the global nor the env var serves
-	 * us; keep both disabled and fall through to the normal video path.
-	 */
-	/* g_charger_mode = 1; */
-	/* setenv("bootmode", "charger"); */
+
+	g_charger_mode = 1;
+	setenv("bootmode", "charger");
 	vlx_nand_boot(BOOT_PART, BACKLIGHT_ON, LCD_ON);
 
 }

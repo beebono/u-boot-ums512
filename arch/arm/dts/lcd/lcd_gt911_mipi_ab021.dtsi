@@ -5,34 +5,16 @@
  */
 
 / { lcds {
-	lcd_rgrotate_mipi_720: lcd_rgrotate_mipi_720 {
+	lcd_gt911_mipi_ab021: lcd_gt911_mipi_ab021 {
 		sprd,dsi-work-mode = <1>;
 		sprd,dsi-lane-number = <2>;
 		sprd,dsi-color-format = "rgb888";
 		sprd,phy-bit-clock = <552000>;
-
-		/*
-		 * Arm auto clock-lane control (AUTO_CLKLANE_CTRL_EN) during dsi
-		 * init, before the initial-command writes. Without it the clock
-		 * lane never engages and every init command stalls with "tx cmd
-		 * fifo is not empty" -- the same failure the kernel cold-init
-		 * fix addressed (linux commit 6cf23bd6bd3b). Property name typo
-		 * ("coninuous") is the vendor driver's, see sprd_panel.c.
-		 */
-		sprd,non-coninuous-clk-en = <1>;
-
 		sprd,panel-if-type = <2>;
-
-		/*
-		 * This device's panel does not provide a readable LCD ID
-		 * sequence, so opt into the U-Boot no-ID bring-up fallback.
-		 */
-		sprd,lcd-id-tokernel = <0x7201>;
+		sprd,lcd-id-tokernel = <0xFFFF>;
 		sprd,lcd-no-id;
-
 		sprd,reset-on-sequence = <1 50>, <0 50>, <1 120>;
-		sprd,reset-off-sequence = <0 5>;
-		sprd,use-dcs-write;
+		sprd,reset-off-sequence = <0 20>;
 
 		sprd,initial-command = [
 			29 00 00 02 FF 30
@@ -195,7 +177,7 @@
 		];
 
 		display-timings {
-			lcd_rgrotate_mipi_720_timing0: timing0 {
+			timing0: timing0 {
 				clock-frequency = <38400000>;
 				hactive = <720>;
 				vactive = <720>;

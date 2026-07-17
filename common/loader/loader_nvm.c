@@ -139,6 +139,8 @@ typedef struct {
 	uint64_t vendor_ramdisk_size;
 	uint64_t vendor_bootconfig_size;
 	uint64_t vendor_ramdisk_table_size;
+	uint32_t vendor_ramdisk_table_entry_num;
+	uint32_t vendor_ramdisk_table_entry_size;
 } boot_img_info_t;
 static boot_img_info_t s_bootimg_info;
 unsigned int g_DeviceStatus = VBOOT_STATUS_LOCK;
@@ -1107,6 +1109,11 @@ static int parser_vendor_boot_image_header_v4(vendor_boot_img_hdr_v4 *vb_hdr_v4,
 	/* get vendor ramdisk table size */
 	s_bootimg_info.vendor_ramdisk_table_size = vb_hdr_v4->vendor_ramdisk_table_size;
 	debugf("vendorbootimage: vendor ramdisk table size is %lld\n", s_bootimg_info.vendor_ramdisk_table_size);
+	s_bootimg_info.vendor_ramdisk_table_entry_num = vb_hdr_v4->vendor_ramdisk_table_entry_num;
+	s_bootimg_info.vendor_ramdisk_table_entry_size = vb_hdr_v4->vendor_ramdisk_table_entry_size;
+	debugf("vendorbootimage: vendor ramdisk table entries = %u, entry size = %u\n",
+		s_bootimg_info.vendor_ramdisk_table_entry_num,
+		s_bootimg_info.vendor_ramdisk_table_entry_size);
 
 	/* get vendor ramdisk table offset */
 	size = PAD_SIZE(s_bootimg_info.dt_size, s_bootimg_info.page_size);
@@ -1222,7 +1229,7 @@ uint64_t _get_kernel_ramdisk_dt_offset(boot_img_hdr * hdr, uchar *partition)
 		return 0;
 	}
 
-	debug("boot_img_hdr header_version: %d\n", hdr->header_version);
+	printf("[bootimg] partition=%s header_version=%d\n", partition, hdr->header_version);
 	if (hdr->header_version >= ARRAY_SIZE(boot_img_offset_hdl_tbl)) {
 		if (!strcmp(partition, RECOVERY_PART)) {
 			debugf("recovery header version is 0");
@@ -2054,6 +2061,105 @@ static int read_vendor_bootconfig(uchar *ramdisk_addr)
 	return 1;
 }
 
+static int should_load_vendor_ramdisk_entry(uint32_t ramdisk_type, int is_recovery)
+{
+	switch (ramdisk_type) {
+	case VENDOR_RAMDISK_TYPE_PLATFORM:
+		return 1;
+	case VENDOR_RAMDISK_TYPE_RECOVERY:
+		return is_recovery;
+	case VENDOR_RAMDISK_TYPE_NONE:
+		return 1;
+	case VENDOR_RAMDISK_TYPE_DLKM:
+	default:
+		return 0;
+	}
+}
+
+static uint64_t load_vendor_ramdisk_v4_entries(uchar *ramdisk_addr, int is_recovery)
+{
+	struct vendor_ramdisk_table_entry_v4 *table = NULL;
+	uint64_t copied = 0;
+	uint64_t table_size = s_bootimg_info.vendor_ramdisk_table_size;
+	uint32_t entry_num = s_bootimg_info.vendor_ramdisk_table_entry_num;
+	uint32_t entry_size = s_bootimg_info.vendor_ramdisk_table_entry_size;
+	uint32_t i;
+
+	if (!table_size || !entry_num || !entry_size ||
+	    entry_size < sizeof(struct vendor_ramdisk_table_entry_v4)) {
+		debugf("vendor ramdisk table metadata invalid, fallback to full vendor ramdisk\n");
+		return 0;
+	}
+
+	table = malloc(table_size);
+	if (NULL == table) {
+		errorf("malloc vendor ramdisk table fail, fallback to full vendor ramdisk\n");
+		return 0;
+	}
+
+	if (0 != common_raw_read(s_bootimg_info.vendor_boot_part, table_size,
+			s_bootimg_info.vendor_ramdisk_table_offset, (char *)table)) {
+		errorf("%s vendor ramdisk table read error, fallback to full vendor ramdisk\n",
+			s_bootimg_info.vendor_boot_part);
+		free(table);
+		return 0;
+	}
+
+	for (i = 0; i < entry_num; i++) {
+		struct vendor_ramdisk_table_entry_v4 *entry;
+		uint64_t src_offset;
+
+		entry = (struct vendor_ramdisk_table_entry_v4 *)((char *)table + (i * entry_size));
+		if (!should_load_vendor_ramdisk_entry(entry->ramdisk_type, is_recovery))
+			continue;
+
+		if ((uint64_t)entry->ramdisk_offset + entry->ramdisk_size > s_bootimg_info.vendor_ramdisk_size) {
+			errorf("vendor ramdisk entry %u exceeds section bounds, fallback to full vendor ramdisk\n", i);
+			copied = 0;
+			goto out;
+		}
+
+		src_offset = s_bootimg_info.vendor_ramdisk_offset + entry->ramdisk_offset;
+		if (0 != common_raw_read(s_bootimg_info.vendor_boot_part, entry->ramdisk_size,
+				src_offset, ramdisk_addr + copied)) {
+			errorf("%s vendor ramdisk entry %u read error, fallback to full vendor ramdisk\n",
+				s_bootimg_info.vendor_boot_part, i);
+			copied = 0;
+			goto out;
+		}
+
+		debugf("%s vendor ramdisk entry %u type=%u size=%u name=%s locate to %p\n",
+			s_bootimg_info.vendor_boot_part, i, entry->ramdisk_type,
+			entry->ramdisk_size, entry->ramdisk_name, ramdisk_addr + copied);
+		copied += entry->ramdisk_size;
+	}
+
+out:
+	free(table);
+	return copied;
+}
+
+static uint64_t load_vendor_ramdisk(uchar *ramdisk_addr, int is_recovery)
+{
+	uint64_t loaded_size = 0;
+
+	if (s_bootimg_info.vendor_ramdisk_table_entry_num &&
+	    s_bootimg_info.vendor_ramdisk_table_entry_size) {
+		loaded_size = load_vendor_ramdisk_v4_entries(ramdisk_addr, is_recovery);
+		if (loaded_size > 0)
+			return loaded_size;
+	}
+
+	if (0 != common_raw_read(s_bootimg_info.vendor_boot_part, s_bootimg_info.vendor_ramdisk_size,
+			s_bootimg_info.vendor_ramdisk_offset, ramdisk_addr)) {
+		errorf("%s ramdisk read error!\n", s_bootimg_info.vendor_boot_part);
+		return 0;
+	}
+	debugf("%s ramdisk read OK, size = %lld, locate to %p!\n",
+		s_bootimg_info.vendor_boot_part, s_bootimg_info.vendor_ramdisk_size, ramdisk_addr);
+	return s_bootimg_info.vendor_ramdisk_size;
+}
+
 int _boot_load_kernel_ramdisk_image(char *bootmode, boot_img_hdr * hdr, uchar **dt_addr )
 {
 	uchar *partition = NULL;
@@ -2070,8 +2176,10 @@ int _boot_load_kernel_ramdisk_image(char *bootmode, boot_img_hdr * hdr, uchar **
 	uint32_t bootconfig_size_v4 = 0;
 	uint32_t bootconfig_checksum_v4 = 0;
 	uint8_t bootconfig_gap = 0;
+	int is_recovery = 0;
 
 	if (0 == memcmp(bootmode, RECOVERY_PART, strlen(RECOVERY_PART))) {
+		is_recovery = 1;
 #ifdef CONFIG_ANDROID_AB
 		partition = "boot";
 #else
@@ -2212,6 +2320,12 @@ int _boot_load_kernel_ramdisk_image(char *bootmode, boot_img_hdr * hdr, uchar **
 				s_bootimg_info.bootimg_part, hdr_v3->ramdisk_size, ramdisk_addr);
 
 		} else if(BOOT_HEADER_VERSION_FOUR == hdr_v3->header_version){
+			uint64_t selected_vendor_ramdisk_size;
+
+			selected_vendor_ramdisk_size = load_vendor_ramdisk(ramdisk_addr, is_recovery);
+			if (selected_vendor_ramdisk_size == 0)
+				return 0;
+
 			bootconfig_gap =  s_bootimg_info.vendor_bootconfig_size % 4;
 			if(bootconfig_gap!=0){
 				bootconfig_gap = 4 - bootconfig_gap;
@@ -2220,18 +2334,9 @@ int _boot_load_kernel_ramdisk_image(char *bootmode, boot_img_hdr * hdr, uchar **
 				bootconfig_size_v4 = s_bootimg_info.vendor_bootconfig_size;
 
 			fdt_initrd_norsvmem(*dt_addr, ramdisk_addr,
-				ramdisk_addr + hdr_v3->ramdisk_size + s_bootimg_info.vendor_ramdisk_size + bootconfig_size_v4 + BOOTCONFIG_TRAILER_SIZE, 1);
+				ramdisk_addr + hdr_v3->ramdisk_size + selected_vendor_ramdisk_size + bootconfig_size_v4 + BOOTCONFIG_TRAILER_SIZE, 1);
 
-			/* read vendor ramdisk image */
-			if (0 != common_raw_read(s_bootimg_info.vendor_boot_part, s_bootimg_info.vendor_ramdisk_size,
-					s_bootimg_info.vendor_ramdisk_offset, ramdisk_addr)) {
-				errorf("%s ramdisk read error!\n", s_bootimg_info.vendor_boot_part);
-				return 0;
-			}
-			debugf("%s ramdisk read OK, size = %lld, locate to %p!\n",
-				s_bootimg_info.vendor_boot_part, s_bootimg_info.vendor_ramdisk_size, ramdisk_addr);
-
-			ramdisk_addr = ramdisk_addr + s_bootimg_info.vendor_ramdisk_size;
+			ramdisk_addr = ramdisk_addr + selected_vendor_ramdisk_size;
 
 			/* read ramdisk image */
 			if (0 != common_raw_read(s_bootimg_info.bootimg_part, hdr_v3->ramdisk_size,
@@ -2486,7 +2591,7 @@ int loader_binding_data_set(void)
 		debugf("INFO: LOCK FLAG IS : LOCK!!!\n");
 	}else if(g_DeviceStatus == VBOOT_STATUS_UNLOCK){
 		debugf("INFO: LOCK FLAG IS : UNLOCK!!!\n");
-		lcd_printf("INFO: LOCK FLAG IS : UNLOCK!!!\n");
+		//lcd_printf("INFO: LOCK FLAG IS : UNLOCK!!!\n");
 	}
 
 	return 0;
@@ -2552,7 +2657,6 @@ int take_action_with_vbootret(void)
 	switch(g_verifiedbootstate) {
 		case v_state_red:
 			debugf("WARNNING: Oem Key & User Key Verify Failed!!!\n");
-			display_state_verified_red();
 /*
 			while(sec_time_count) {
 				mdelay(100);
@@ -2564,13 +2668,12 @@ int take_action_with_vbootret(void)
 
 		case v_state_yellow:
 			debugf("WARNNING: USER KEY VERIFY SUCCESS!!!\n");
-            display_state_verified_yellow();
 			break;
 
 		case v_state_green:
 			debugf("WARNNING: OEM KEY VERIFY SUCCESS!!! bootmode=%d\n", s_boot_mode);
                         #ifdef DEBUG
-#if 1
+#if 0
 			if (fb_oem_repair_get_booargs(buf, sizeof(buf)) <= 0) {
 				debugf("WARNNING: OEM KEY VERIFY SUCCESS!!! bootmode=%d\n", s_boot_mode);
 			}
@@ -2592,7 +2695,6 @@ int take_action_with_vbootret(void)
 		case v_state_orange:
 			debugf("WARNNING: LOCK FLAG IS : UNLOCK, SKIP VERIFY!!!\n");
 			//lcd_printf("WARNNING: LOCK FLAG IS : UNLOCK, SKIP VERIFY!!!\n");
-            display_state_verified_orange();
 			break;
 
 		default:
