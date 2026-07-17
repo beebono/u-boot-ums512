@@ -8,7 +8,6 @@
 #include <part.h>
 
 extern void lcd_printf(const char *fmt, ...);
-extern int drv_lcd_init(void);
 
 /*
  * Persist the printf capture buffer (CONFIG_SPRD_LOG fills p_log_buffer from
