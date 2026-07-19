@@ -124,6 +124,7 @@ static inline void pubcp_boot(void)
 //  Author:         Andrew.Yang
 //  Note:
 /*****************************************************************************/
+#ifdef CONFIG_ARM7_RAM_ACTIVE
 void pmic_arm7_RAM_active(void)
 {
 	*((volatile u32*)REG_AON_APB_CM4_SYS_SOFT_RST) |= BIT_AON_APB_CM4_CORE_SOFT_RST;
@@ -133,6 +134,7 @@ void pmic_arm7_RAM_active(void)
 	*((volatile u32*)REG_AON_APB_CM4_SYS_SOFT_RST) &= ~BIT_AON_APB_CM4_SYS_SOFT_RST;
 	msleep(50);
 }
+#endif
 
 
 /*****************************************************************************/
@@ -164,6 +166,8 @@ static inline void audcp_boot(u32 boot_vector)
 							BIT_PMU_APB_AUDCP_AUDDSP_SOFT_RST);
 	*((volatile u32 *)REG_PMU_APB_SOFT_RST_SEL) &= ~BIT_PMU_APB_SOFT_RST_SEL(4);
 }
+
+void modem_entry(void);
 
 /**---------------------------------------------------------------------------*
  **                         Compiler Flag                                     *

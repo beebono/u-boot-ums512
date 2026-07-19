@@ -477,7 +477,7 @@ int ab_select_slot(void)
 		debugf("ANDROID: Attempting slot %c, tries remaining %d\n",
 			BOOT_SLOT_NAME(slot),
 			abc->slot_info[slot].tries_remaining);
-		//abc->slot_info[slot].tries_remaining--;
+		abc->slot_info[slot].tries_remaining--;
 		store_needed = true;
 	}
 

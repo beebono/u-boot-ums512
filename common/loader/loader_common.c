@@ -17,7 +17,6 @@
 #endif
 #include "sprd_cpcmdline.h"
 #include <asm/arch/sprd_reg.h>
-#include <asm/system.h>
 #include <hwfeature.h>
 
 #define DECOUPLING_INFO_PARTITION "modem"
@@ -299,36 +298,6 @@ void fdt_fixup_all(u8 *fdt_blob)
 	fdt_fixup_dtbo_index(fdt_blob);
 	/* if enabled, set loglevel = 7*/
 	fdt_fixup_loglevel(fdt_blob);
-
-#ifdef CONFIG_SPRD_RAMLOG
-#ifdef CONFIG_MAKE_MY_RAMLOG_BIG
-	fdt_chosen_bootargs_append(fdt_blob, "ignore_loglevel", 1);
-
-#ifdef CONFIG_MAKE_MY_RAMLOG_BIGGER
-	{
-		int roff = fdt_node_offset_by_compatible(fdt_blob, -1, "ramoops");
-		if (roff >= 0)
-			fdt_setprop_u32(fdt_blob, roff, "console-size", 0x20000);
-	}
-#endif
-#endif
-#endif
-
-	/* Disable the CP2 cellular modem when only supporting WiFi */
-#ifdef PRODUCT_WIFI_ONLY
-	{
-		static const char * const modem_nodes[] = {
-			"/modem@0", "/modem@1",
-		};
-		int i;
-		for (i = 0; i < 2; i++) {
-			int moff = fdt_path_offset(fdt_blob, modem_nodes[i]);
-			if (moff >= 0)
-				fdt_setprop_string(fdt_blob, moff, "status", "disabled");
-		}
-	}
-#endif
-
 	fdt_fixup_system_mount_part_num(fdt_blob);
 
 	fdt_fixup_switch_storage_probe(fdt_blob);
@@ -552,6 +521,11 @@ static int start_linux_armv8(uchar *dt_addr)
 	theKernel = (void (*)(void *, int, int, int))KERNEL_ADR;
 
 	/*before switch to el2,flush all cache */
+	/*FIXME: cleanup_before_linux() will cause panic here, we need to find the solution*/
+	flush_dcache_range(CONFIG_SYS_SDRAM_BASE, CONFIG_SYS_SDRAM_END);
+#ifdef CONFIG_DUAL_DDR
+	flush_dcache_range(CONFIG_SYS_SDRAM_BASE2, CONFIG_SYS_SDRAM_END2);
+#endif
 
 	/*sharkle and sharklj1 need disable mmu and cache before jump into kernel*/
 	cleanup_before_linux();
@@ -585,75 +559,8 @@ static int start_linux_armv8(uchar *dt_addr)
 extern uint32_t uboot_start_time;
 extern int read_mux_cfg_flag(void);
 
-#ifdef CONFIG_SPRD_RAMLOG
-#define RAMOOPS_CONSOLE_ADDR   0xfff98000UL
-#define RAMOOPS_CONSOLE_SIZE   0x20000
-#define PERSISTENT_RAM_SIG     0x43474244  /* 'DBGC' */
-
-static void dump_ramoops_console(void)
-{
-	volatile u32 *hdr = (volatile u32 *)RAMOOPS_CONSOLE_ADDR;
-	u32 sig   = hdr[0];
-	u32 start = hdr[1];
-	u32 size  = hdr[2];
-	char *data = (char *)(RAMOOPS_CONSOLE_ADDR + 12);
-	u32 cap = RAMOOPS_CONSOLE_SIZE - 12;
-	u32 i;
-
-	if (sig != PERSISTENT_RAM_SIG) {
-		printf("[ramoops] no console sig (0x%08x) @ 0x%lx\n",
-		       sig, RAMOOPS_CONSOLE_ADDR);
-		return;
-	}
-	if (size > cap)
-		size = cap;
-
-	printf("[ramoops] ==== previous kernel console (start=%u size=%u) ====\n",
-	       start, size);
-
-	/*
-	 * Emit via puts() line-by-line: the SPRD eMMC log capture lives in
-	 * puts() (not putc()) and drops any single chunk that doesn't fit the
-	 * remaining buffer, so we flush small sanitized lines.
-	 */
-	{
-		int wrapped = (size >= cap);
-		u32 count = wrapped ? cap : size;
-		char line[128];
-		int n = 0;
-
-		for (i = 0; i < count; i++) {
-			char c = wrapped ? data[(start + i) % cap] : data[i];
-
-			if (c == '\0' || c == '\r')
-				continue;
-			if (c == '\n' || n >= (int)sizeof(line) - 2) {
-				line[n++] = '\n';
-				line[n] = '\0';
-				puts(line);
-				n = 0;
-				continue;
-			}
-			if (c < 0x20 || c > 0x7e)
-				c = '.';
-			line[n++] = c;
-		}
-		if (n) {
-			line[n++] = '\n';
-			line[n] = '\0';
-			puts(line);
-		}
-	}
-
-	printf("[ramoops] ==== end kernel console ====\n");
-}
-#endif
-
 void vlx_entry(uchar *dt_addr)
 {
-#ifdef CONFIG_SPRD_RAMLOG
-	dump_ramoops_console();
-#endif
 #ifdef CONFIG_FASTBOOT_SECURITY_DOWNLOAD
 	/* clear reboot-edl flag if necessary */
 	if (!fb_check_reboot_edl(NULL)) {
@@ -669,21 +576,6 @@ void vlx_entry(uchar *dt_addr)
 		!bootmode ? "normal" : bootmode, consume_time,
 		!bootcause_cmdline ? "Bootcause hasn't been set yet" : bootcause_cmdline,
 		!pwroffcause_cmdline ? "pwroffcause hasn't been set yet" : pwroffcause_cmdline);
-#if defined(CONFIG_SPRD_LOG) && defined(CONFIG_LOG_2_EMMC)
-	/*
-	 * write_log()/write_log_last() are gated on DEBUG and on
-	 * get_boot_role() != DOWNLOAD; dump the raw printf capture buffer to
-	 * offset 0 of uboot_log unconditionally so it survives the kernel jump
-	 * (read back with: spd_dump ... r uboot_log).
-	 */
-	if (p_log_buffer && p_log_buffer->addr && p_log_buffer->used) {
-		if (common_raw_write(UBOOT_LOG_PARTITION,
-				     (uint64_t)p_log_buffer->used, (uint64_t)0,
-				     (uint64_t)LAST_LOG_PARTITION_OFFSET,
-				     (char *)p_log_buffer->addr))
-			printf("[uboot] uboot_log dump failed\n");
-	}
-#endif
 
 	/* the last time to write log */
 	write_log_last();

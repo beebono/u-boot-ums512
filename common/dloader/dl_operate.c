@@ -38,6 +38,8 @@ static unsigned int img_backup_flag = 0;
 static unsigned int g_download_part_count = 0;
 static unsigned long g_sparse_size = 0, g_raw_size = 0;
 
+extern fastboot_image_size;
+
 # ifndef CONFIG_DTS_MEM_LAYOUT
 #ifdef CONFIG_X86
 #ifdef CONFIG_SPRD_SOC_SP9853I
@@ -808,6 +810,8 @@ OPERATE_STATUS dl_secboot_verify(ulong *strip, unsigned char *part_name,
 	} else {
 		/* for autodloader mode, use fb_secure_process_flow verify */
 		mode = getenv("bootmode");
+		if (mode != NULL && !strcmp(mode, "autodloader"))
+			fastboot_image_size = rcv_size;
 
 		verify_res = fb_secure_process_flow(strip,
 			part_name,

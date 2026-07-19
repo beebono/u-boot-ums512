@@ -8,13 +8,12 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#define SPRD_DEBUG_LEVEL		2
+#define SPRD_DEBUG_LEVEL		0
 
-/*#define CONFIG_KERNEL_BOOT_CP */
-#define CONFIG_SP_DDR_BOOT
+#define CONFIG_KERNEL_BOOT_CP
+/*#define CONFIG_SP_DDR_BOOT*/
 #define CONFIG_AUDCP_BOOT_VECTOR 0x44800040
 #define CONFIG_MEM_LAYOUT_DECOUPLING
-#define CONFIG_LCD_ROTATION
 
 /*sharklj1 fpga/zebu debug*/
 #define BOOTIMG_ADR	0x8D000000
@@ -25,15 +24,11 @@
 #define CONFIG_SPRD_UID
 #define CONFIG_SYS_NO_FLASH
 #define CONFIG_SPL_BAK
-#define CONFIG_MISC_INIT_R                     /* call misc_init_r()	      */
+#define CONFIG_MISC_INIT_R             /* call misc_init_r()	 */
 #define CONFIG_BOARD_LATE_INIT         /* call board_late_init() */
-/* extlinux passes the initrd as raw addr:size (initramfs.cpio.gz, no uImage
- * wrapper); without this boot_get_ramdisk rejects it ("Wrong Ramdisk Image
- * Format"). */
 #define CONFIG_SUPPORT_RAW_INITRD
 
 /* support wifi mode for temp */
-#define PRODUCT_WIFI_ONLY
 #define CONFIG_WIFI_MODE
 
 /* support get hw version*/
@@ -41,7 +36,8 @@
 
 
 /*the SPL is erased, the romcode will enter the download process.*/
-#define CONFIG_ERASE_SPL_AUTO_DOWNLOAD
+/*Why would we want to ERASE the SPL automatically?? EVER???????*/
+/*#define CONFIG_ERASE_SPL_AUTO_DOWNLOAD */
 
 /* Cache Definitions */
 /* #define CONFIG_SYS_DCACHE_OFF */
@@ -169,12 +165,11 @@
 /* Command line configuration */
 #define CONFIG_MENU
 /*#define CONFIG_MENU_SHOW*/
-/*#define CONFIG_CMD_CACHE*/
+#define CONFIG_CMD_CACHE
 #define CONFIG_CMD_BDI
 #define CONFIG_CMD_DHCP
 #define CONFIG_CMD_PXE
 #define CONFIG_CMD_ENV
-#define CONFIG_CMD_FASTBOOT
 #define CONFIG_CMD_FLASH
 #define CONFIG_CMD_IMI
 #define CONFIG_CMD_MEMORY
@@ -395,8 +390,8 @@
 #define SIMLOCK_ADR      (0x891FE800+0x4)   //0x4 just for data header
 
 #define KERNEL_ADR      0x80080000
-#define DT_ADR          0x84e00000
-#define RAMDISK_ADR     0x85000000
+#define DT_ADR          0x9df00000
+#define RAMDISK_ADR     0xa0000000
 
 
 /*for modem entry*/
@@ -452,7 +447,7 @@
 
 /* Chip Driver Macro Definitions End*/
 /*active arm7 ram before access to it*/
-#define CONFIG_ARM7_RAM_ACTIVE
+/*#define CONFIG_ARM7_RAM_ACTIVE */
 #define CONFIG_RTC_START_YEAR		1970
 
 #define CONFIG_DM_SPRD_I2C
@@ -478,28 +473,11 @@
 #define ADI_15BIT_MODE
 #endif
 
-/* hwfeature fdt fixup */
-#define CONFIG_UBOOT_HWFEATURE \
-	"auto/efuse=auto.efuse,1:T610,2:T700,0:T618"
-
-/* secure boot/android compat */
-#define TOS_TRUSTY
-#define CONFIG_TRUSTY_QL_TIPC
-#define CONFIG_SECBOOT
-#define CONFIG_SPRD_SECBOOT
-#define CONFIG_VBOOT_V2
-#define CONFIG_ANDROID_AB
-#define CONFIG_ANDROID_BOOT_IMAGE
-#define PRODUCT_USE_DYNAMIC_PARTITIONS
 /* direct access prot configuration  */
 /*#define CONFIG_DIRECT_ACC_PROT */
 /*sharkl5pro dcdc/ldo force on for bringup*/
 /*#define CONFIG_DEBUG_DCDCLDO_FORCE_ON */
 
-/* UART-less debug through uboot_log */
-/*#define CONFIG_SPRD_RAMLOG */
-/*#define CONFIG_MAKE_MY_RAMLOG_BIG */
-/*#define CONFIG_MAKE_MY_RAMLOG_BIGGER */
 
 /*sensor */
 /*#define CONFIG_SENSOR_HUB_UBOOT */

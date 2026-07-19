@@ -43,42 +43,69 @@ TEE driver, there are two ways if you want to pass 64 bits addr to tos:
 
 int uboot_verify_img(unsigned long start_addr, uint32_t lenth)
 {
-  return NO_ERROR;
+
+  smc_param *param = tee_common_call(FUNCTYPE_VERIFY_IMG, (uint32_t)start_addr, lenth);
+  if (param->a0!=NO_ERROR) {//SM_ERR_PANIC may be returned due to tos panic
+  	printf("uboot_verify_img() return error:param->a0=%d\n",param->a0);
+	while (1);
+  }
+  return param->a0;
 }
 
 int uboot_vboot_verify_img(unsigned long start_addr, uint32_t lenth)
 {
-  return NO_ERROR;
+  smc_param *param = tee_common_call(FUNCTYPE_VBOOT_VERIFY_IMG, (uint32_t)start_addr, lenth);
+  if (param->a0!=NO_ERROR) {//SM_ERR_PANIC may be returned due to tos panic
+	printf("uboot_vboot_verify_img() return error:param->a0=%d\n",param->a0);
+#ifdef CONFIG_ANDROID_AB
+	reboot_devices(CMD_NORMAL_MODE);
+#else
+	while (1);
+#endif
+  }
+  return param->a0;
 }
 
-int uboot_verify_product_sn_signature(unsigned long start_addr, uint32_t lenth)
-{
-	return NO_ERROR;
+int uboot_verify_product_sn_signature(unsigned long start_addr, uint32_t lenth){
+	smc_param *param = tee_common_call(FUNCTYPE_VERIFY_PRODUCT_SN_SIGNATURE, (uint32_t)start_addr, lenth);
+	if (param->a0 != NO_ERROR) {
+		printf("uboot_verify_product_sn_signature() return error:param->a0=%d\n",param->a0);
+		while (1);
+	}
+	return param->a0;
 }
 
-int uboot_config_os_version(unsigned long start_addr, uint32_t lenth)
-{
-	return NO_ERROR;
+int uboot_config_os_version(unsigned long start_addr, uint32_t lenth){
+	smc_param *param = tee_common_call(FUNCTYPE_CONFIG_OS_VERSION, (uint32_t)start_addr, lenth);
+	if (param->a0 != NO_ERROR) {
+		printf("uboot_config_os_version() return error:param->a0=%d\n",param->a0);
+		while (1);
+	}
+	return param->a0;
 }
 
 int uboot_set_root_of_trust(unsigned long start_addr, uint32_t lenth){
 	smc_param *param = tee_common_call(FUNCTYPE_SET_ROOT_OF_TRUST, (uint32_t)start_addr, lenth);
-	if (param->a0 != NO_ERROR)
+	if (param->a0 != NO_ERROR) {
 		printf("uboot_set_root_of_trust() return error:param->a0=%d\n",param->a0);
-
-	return NO_ERROR;
+		while (1);
+	}
+	return param->a0;
 }
 
 int uboot_get_tos_random(unsigned long start_addr, uint32_t lenth){
-	if (((start_addr & 0xFFF) != 0) || lenth > 4096)
+	if (((start_addr & 0xFFF) != 0) || lenth > 4096) {
 		printf("please guaranted addr (%lx) is align(4096) "
 				"and lenth (%d) is less than 4096! \n", start_addr, lenth);
+		fastboot_mode();
+	}
 
 	smc_param *param = tee_common_call(FUNCTYPE_GET_TOS_RANDOM, (uint32_t)start_addr, lenth);
-	if (param->a0 != NO_ERROR)
+	if (param->a0 != NO_ERROR) {
 		printf("uboot_get tos random() return error:param->a0=%d\n",param->a0);
-
-	return NO_ERROR;
+		fastboot_mode();
+	}
+	return param->a0;
 }
 
 int uboot_encrypt_data(uint64_t start_addr, uint64_t lenth){

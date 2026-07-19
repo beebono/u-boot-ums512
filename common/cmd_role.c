@@ -41,6 +41,10 @@ int do_role(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	boot_mode_t boot_role = get_boot_role();
 #endif
 
+	/* RG Rotate: always take the LOAD (normal boot) path regardless of the
+	 * chipram mode word (reads 0x104 on this unit). */
+	boot_role = BOOTLOADER_MODE_LOAD;
+
 	switch(boot_role) {
 		case BOOTLOADER_MODE_DOWNLOAD:
 			setenv("bootdelay", "0");
@@ -48,7 +52,7 @@ int do_role(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 			debugf("Get chipram env mode %x,go download\n", boot_role);
 			break;
 		case BOOTLOADER_MODE_LOAD:
-			setenv("bootcmd", "extlinux_scan; cboot; cboot fastboot");
+			setenv("bootcmd", "extlinux_scan");
 			debugf("Get chipram env mode %x,go boot\n", boot_role);
 			break;
 		default :

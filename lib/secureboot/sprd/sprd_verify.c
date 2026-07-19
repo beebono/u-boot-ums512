@@ -76,7 +76,7 @@ typedef enum WcnGnssVerifyFlag {
 	FLAG_OTHER
 } wcn_gnss_verify_flag;
 
-static int fastboot_image_size = 0;
+extern fastboot_image_size;
 
 void dumpHex(const char *title, uint8_t * data, int len)
 {
@@ -143,7 +143,7 @@ void update_sec_version(void)
         {
             if (nosecure_update_version != Non_Trusted_update_version[i])
             {
-                secf("\r\nNosec rollback version not unified\n");
+                secf("\r\Nosec rollback version not unified\n");
                 return;
             }
         }
@@ -216,7 +216,7 @@ void update_sec_version(void)
         {
             if (nosecure_update_version != Non_Trusted_update_version[i])
             {
-                secf("\r\nNosec rollback version not unified\n");
+                secf("\r\Nosec rollback version not unified\n");
                 return;
             }
         }
@@ -1196,16 +1196,15 @@ void sprd_fb_secure_verify(uint8_t *name,uint8_t * header,uint8_t *code)
 #else
 			memset(img_verify_info.pubkeyhash,0xff,HASH_BYTE_LEN);
 #endif
-#ifdef TOS_TRUSTY
 		}else if(strcmp("gnssmodem",name) == 0){
 			img_verify_info_tos->flag = FLAG_GPS;
 		}else if(strcmp("wcnmodem",name) == 0){
 			img_verify_info_tos->flag = FLAG_WCN;
 		}
+#ifdef TOS_TRUSTY
 		ret = uboot_verify_img((imgToVerifyInfo*)img_verify_info_tos,sizeof(imgToVerifyInfo));
 		while(ret);
 #else
-        }
 		uboot_verify_img(&img_verify_info,sizeof(imgToVerifyInfo));
 #endif
 	}

@@ -9,19 +9,35 @@
  */
 #include <common.h>
 #include <command.h>
+#include <g_dnl.h>
 
-int usb_fastboot_init(void);
-int usb_fastboot_exit(void);
-
-int do_fastboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
+static int do_fastboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 {
 	int ret;
 
-	ret = usb_fastboot_init();
+	g_dnl_clear_detach();
+	ret = g_dnl_register("usb_dnl_fastboot");
 	if (ret)
 		return ret;
 
-	usb_fastboot_exit();
+	if (!g_dnl_board_usb_cable_connected()) {
+		puts("\rUSB cable not detected.\n" \
+		     "Command exit.\n");
+		g_dnl_unregister();
+		g_dnl_clear_detach();
+		return CMD_RET_FAILURE;
+	}
+
+	while (1) {
+		if (g_dnl_detach())
+			break;
+		if (ctrlc())
+			break;
+		usb_gadget_handle_interrupts(0);
+	}
+
+	g_dnl_unregister();
+	g_dnl_clear_detach();
 	return CMD_RET_SUCCESS;
 }
 

@@ -26,7 +26,6 @@ int get_recovery_message(struct recovery_message *out)
         if (0 != get_partition_info_by_name(p_block_dev, "misc", &info))
 		return -1;
 
-#if 0
 	debugf("info.attributes.power_off_protection=%d\n", info.attributes.fields.power_off_protection);
 	if (1 == info.attributes.fields.power_off_protection) {
 		debugf("get the power-off protection flag, need to check the misc file in sd card\n");
@@ -38,7 +37,6 @@ int get_recovery_message(struct recovery_message *out)
 			debugf("no recovery image in sd card\n");
 		}
 	}
-#endif
 #endif
 
 	if (0 != common_raw_read("misc", sizeof(struct recovery_message), (uint64_t)0, (char *)out)) {
