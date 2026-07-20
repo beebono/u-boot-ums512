@@ -167,7 +167,7 @@ static inline void audcp_boot(u32 boot_vector)
 	*((volatile u32 *)REG_PMU_APB_SOFT_RST_SEL) &= ~BIT_PMU_APB_SOFT_RST_SEL(4);
 }
 
-void modem_entry(void);
+void memset_dsp_share_memory(void);
 
 /**---------------------------------------------------------------------------*
  **                         Compiler Flag                                     *

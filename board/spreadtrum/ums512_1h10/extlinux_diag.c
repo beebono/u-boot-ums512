@@ -163,8 +163,9 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 			printf("[uboot] found %s, booting audio DSP\n",
 			       paths[fi]);
 
-			/* Boot audio DSP right before we jump to the kernel. */
-			modem_entry();
+			/* Set up audio DSP and panel right before we jump to the kernel. */
+			logo_display(LOGO_NORMAL_POWER, BACKLIGHT_ON, LCD_DISPLAY_ENABLE);
+			memset_dsp_share_memory();
 
 			if (!try_sysboot(1, 1, paths[fi]))
 				return 0;
