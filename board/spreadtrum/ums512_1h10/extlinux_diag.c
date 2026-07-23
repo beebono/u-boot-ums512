@@ -8,41 +8,29 @@
 #include <mmc.h>
 #include <part.h>
 #include <fs.h>
+#include <lcd.h>
+#include <video_font.h>
 #include <asm/u-boot-arm.h>
 
 #include <asm/arch-sharkl5pro/chip_sharkl5pro/aon_apb.h>
 #include <asm/arch-sharkl5pro/chip_sharkl5pro/pmu_apb.h>
 #include "cp_boot.h"
 
-#define STOCK_UBOOT_PARTITION	"uboot_b"
-#define DHTB_HEADER_SIZE	0x200
-#define DHTB_MAGIC		0x42544844	/* "DHTB", little-endian */
-#define DHTB_DATA_SIZE_OFF	0x30
-#define STOCK_STAGE_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x00100000)
-#define STOCK_TRAMP_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x01000000)
-#define STOCK_MAX_SIZE		(8 * 1024 * 1024)
+/* Charge screen tuning. */
+#define CHARGE_SPLASH_MS	3000	/* how long the "Charging..." text stays lit */
+#define LONG_PRESS_MS		2000	/* power-key hold that means "boot the OS" */
+#define CHARGE_POLL_MS		50	/* button poll cadence while blanked */
+#define CHARGE_TEXT_SCALE	5	/* pixel-doubling factor for charge-screen text */
+
+/* power_button_pressed() returns KEY_PRESSED (0) while the key is held down. */
+#define PWRKEY_DOWN		0
 
 DECLARE_GLOBAL_DATA_PTR;
 
-extern void lcd_printf(const char *fmt, ...);
-extern char stock_tramp[];
-extern char stock_tramp_end[];
-
-asm(
-"	.pushsection	.text.stock_tramp, \"ax\"\n"
-"	.globl	stock_tramp\n"
-"	.type	stock_tramp, %function\n"
-"stock_tramp:\n"
-"1:	cbz	x2, 2f\n"
-"	ldrb	w4, [x1], #1\n"
-"	strb	w4, [x0], #1\n"
-"	sub	x2, x2, #1\n"
-"	b	1b\n"
-"2:	br	x3\n"
-"	.globl	stock_tramp_end\n"
-"stock_tramp_end:\n"
-"	.popsection\n"
-);
+extern void lcd_clear(void);
+extern int fg_color, bg_color;
+extern int power_button_pressed(void);
+extern void power_down_devices(unsigned pd_cmd);
 
 static void diag_log_dump(void)
 {
@@ -58,62 +46,135 @@ static void diag_log_dump(void)
 #endif
 }
 
-static int chainload_stock_uboot(void)
+/*
+ * Blit an ASCII string to the framebuffer, centered, scaled up by pixel
+ * doubling (the console font is a fixed 8x16, far too small on this panel).
+ * 32bpp only, which is what this board runs (LCD_COLOR32).
+ */
+static void charge_text_big(const char *s, int scale)
 {
-	void (*tramp)(void *, void *, unsigned long, void *) =
-		(void (*)(void *, void *, unsigned long, void *))STOCK_TRAMP_ADDR;
-	static char hdr[DHTB_HEADER_SIZE] __aligned(64);
-	char *stage = (char *)STOCK_STAGE_ADDR;
-	uint64_t data_size;
-	ulong tramp_len;
+	u32 *fb = (u32 *)(uintptr_t)gd->fb_base;
+	int w = panel_info.vl_col;
+	int h = panel_info.vl_row;
+	int gw = VIDEO_FONT_WIDTH * scale;
+	int gh = VIDEO_FONT_HEIGHT * scale;
+	int len = strlen(s);
+	int x0 = (w - len * gw) / 2;
+	int y0 = (h - gh) / 2;
+	int i, row, col, sy, sx;
 
-	if (common_raw_read(STOCK_UBOOT_PARTITION,
-			    (uint64_t)DHTB_HEADER_SIZE, (uint64_t)0, hdr)) {
-		printf("[uboot] cannot read %s header\n",
-		       STOCK_UBOOT_PARTITION);
-		return -1;
+	if (x0 < 0)
+		x0 = 0;
+	if (y0 < 0)
+		y0 = 0;
+
+	for (i = 0; s[i]; i++) {
+		const unsigned char *glyph =
+			&video_fontdata[(unsigned char)s[i] * VIDEO_FONT_HEIGHT];
+		int cx = x0 + i * gw;
+
+		for (row = 0; row < VIDEO_FONT_HEIGHT; row++) {
+			unsigned char bits = glyph[row];
+
+			for (col = 0; col < VIDEO_FONT_WIDTH; col++) {
+				u32 px = (bits & (0x80 >> col)) ?
+					 (u32)fg_color : (u32)bg_color;
+
+				for (sy = 0; sy < scale; sy++) {
+					u32 *p = fb + (y0 + row * scale + sy) * w
+						 + cx + col * scale;
+					for (sx = 0; sx < scale; sx++)
+						p[sx] = px;
+				}
+			}
+		}
 	}
+}
 
-	if (*(uint32_t *)hdr != DHTB_MAGIC) {
-		printf("[uboot] %s: bad DHTB magic 0x%08x\n",
-		       STOCK_UBOOT_PARTITION, *(uint32_t *)hdr);
-		return -1;
+/*
+ * Clear to a solid background and draw a big centered message. Brings the
+ * panel up on first use with the backlight off, so the stock logo never
+ * flashes before our text; subsequent calls just repaint and relight.
+ */
+static int panel_up;
+
+static void lcd_banner(const char *msg)
+{
+	if (!panel_up) {
+		logo_display(LOGO_NORMAL_POWER, BACKLIGHT_OFF, LCD_DISPLAY_ENABLE);
+		panel_up = 1;
 	}
+	lcd_clear();	/* wipe prior text and lay down the background color */
+	charge_text_big(msg, CHARGE_TEXT_SCALE);
+	lcd_sync();	/* flush dcache + push framebuffer to the panel (SWDISPC) */
+	logo_display(LOGO_NORMAL_POWER, BACKLIGHT_ON, 0);
+}
 
-	data_size = *(uint64_t *)(hdr + DHTB_DATA_SIZE_OFF);
-	if (!data_size || data_size > STOCK_MAX_SIZE) {
-		printf("[uboot] %s: implausible payload size %llu (max %u)\n",
-		       STOCK_UBOOT_PARTITION, (unsigned long long)data_size,
-		       STOCK_MAX_SIZE);
-		return -1;
+/* Show the current pack charge. Panel must already be up. */
+static void charge_draw(void)
+{
+	char buf[32];
+
+	snprintf(buf, sizeof(buf), "Charging... %d%%",
+		 sprdfgu_read_capacity_permille() / 10);
+	lcd_banner(buf);
+}
+
+/* Blank the panel (backlight off only; leave the panel initialized). */
+static void charge_blank(void)
+{
+	logo_display(LOGO_NORMAL_POWER, BACKLIGHT_OFF, 0);
+}
+
+/*
+ * Offline charge screen. Entered when the device was plugged in while powered
+ * off. Shows a brief "Charging..." splash, blanks the panel, then polls the
+ * power key: a short press flashes the current charge, a long hold returns 0
+ * to continue into the normal boot. Losing the charger powers off. Only
+ * returns on a long hold; otherwise it loops or shuts the device down.
+ */
+static int charge_screen(void)
+{
+	/* Flash the charge splash (lcd_banner brings the panel up on first use). */
+	charge_draw();
+	mdelay(CHARGE_SPLASH_MS);
+	charge_blank();
+
+	for (;;) {
+		/* Unplugged: nothing left to do here, shut down. */
+		if (!charger_connected()) {
+			printf("[uboot] charger removed, powering off\n");
+			diag_log_dump();
+			power_down_devices(0);
+		}
+
+		if (power_button_pressed() == PWRKEY_DOWN) {
+			ulong t0 = get_timer(0);
+			int held_long = 0;
+
+			/* Time the hold; break out early once it's a long press. */
+			while (power_button_pressed() == PWRKEY_DOWN) {
+				if (get_timer(t0) >= LONG_PRESS_MS) {
+					held_long = 1;
+					break;
+				}
+				mdelay(20);
+			}
+
+			if (held_long) {
+				printf("[uboot] power held, leaving charge mode\n");
+				lcd_banner("Booting...");
+				return 0;
+			}
+
+			/* Short press: show charge, then blank again. */
+			charge_draw();
+			mdelay(CHARGE_SPLASH_MS);
+			charge_blank();
+		}
+
+		mdelay(CHARGE_POLL_MS);
 	}
-
-	printf("[uboot] staging stock U-Boot (%llu bytes) at 0x%08lx\n",
-	       (unsigned long long)data_size, (ulong)STOCK_STAGE_ADDR);
-
-	/* Payload begins right after the DHTB header. Read into scratch first. */
-	if (common_raw_read(STOCK_UBOOT_PARTITION, data_size,
-			    (uint64_t)DHTB_HEADER_SIZE, stage)) {
-		printf("[uboot] %s: payload read failed\n",
-		       STOCK_UBOOT_PARTITION);
-		return -1;
-	}
-
-	/* Park the copy-and-jump stub in scratch, clear of the TEXT_BASE dest. */
-	tramp_len = (ulong)stock_tramp_end - (ulong)stock_tramp;
-	memcpy((void *)STOCK_TRAMP_ADDR, (void *)stock_tramp, tramp_len);
-
-	/* Never returns on success. Flush the log while we still can. */
-	diag_log_dump();
-
-	/* Clean slate for stock u-boot. */
-	cleanup_before_linux();
-
-	tramp((void *)CONFIG_SYS_TEXT_BASE, stage, (unsigned long)data_size,
-	      (void *)CONFIG_SYS_TEXT_BASE);
-
-	/* If control ever comes back, the jump failed. */
-	return -1;
 }
 
 static int try_sysboot(int dev, int part, const char *path)
@@ -155,35 +216,58 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 		printf("[uboot] no sd card found\n");
 	}
 
-	if (sd_present && !charger_connected()) {
+	/*
+	 * Decide whether this is a "plugged in while off" wake that should land
+	 * on the charge screen, versus a deliberate power-on that should boot.
+	 *
+	 * The stock shutdown-charge flag is useless here: MISCDATA_SHUTDOWN_
+	 * CHARGE_FLAG_* is undefined for this board, so the flag reads as always
+	 * set. Instead use the live charger state plus the power key: a charger
+	 * insertion auto-powers-on with the key released (-> charge screen),
+	 * whereas a user power-press is still held this early in boot (-> boot).
+	 * Unplugged never enters the charge screen.
+	 *
+	 * charge_screen() only returns if the user then holds power to boot; a
+	 * short press just reports charge, and losing the charger powers off.
+	 */
+	if (sd_present && charger_connected() &&
+	    power_button_pressed() != PWRKEY_DOWN) {
+		printf("[uboot] charger present, key released: charge screen\n");
+		charge_screen();
+	}
+
+	if (sd_present) {
 		for (fi = 0; fi < ARRAY_SIZE(paths); fi++) {
-			if (!file_exists("mmc", "1:1", paths[fi], FS_TYPE_ANY))
+			if (!file_exists("mmc", "1:2", paths[fi], FS_TYPE_ANY))
 				continue;
 
 			printf("[uboot] found %s, booting audio DSP\n",
 			       paths[fi]);
 
-			/* Set up audio DSP and panel right before we jump to the kernel. */
-			logo_display(LOGO_NORMAL_POWER, BACKLIGHT_ON, LCD_DISPLAY_ENABLE);
+			/*
+			 * Show our own "Booting..." banner (not the stock logo)
+			 * so it's clear we're on the custom firmware, then set up
+			 * the audio DSP right before we jump to the kernel.
+			 */
+			lcd_banner("Booting...");
 			memset_dsp_share_memory();
 
-			if (!try_sysboot(1, 1, paths[fi]))
+			if (!try_sysboot(1, 2, paths[fi]))
 				return 0;
 
-			/* Config was there, but boot failed. Bail to stock and hope for the best. */
+			/* Config was there, but boot failed. Nothing to fall back to. */
 			printf("[uboot] sysboot failed after DSP boot\n");
 			break;
 		}
 	}
 
-	printf("[uboot] chainloading stock\n");
-
-	chainload_stock_uboot();
-
-	/* chainload_stock_uboot() only returns on failure. */
-	printf("[uboot] chainload failed!\n");
-	logo_display(LOGO_NORMAL_POWER, BACKLIGHT_ON, LCD_DISPLAY_ENABLE);
-	lcd_printf("Chainload failed... :<\n");
+	/*
+	 * This U-Boot is hosted on the SD card and boots mainline directly, so
+	 * there is no stock to hand back to. Stop here so a failed or missing
+	 * mainline boot is visible instead of being masked.
+	 */
+	printf("[uboot] no mainline boot; halting\n");
+	lcd_banner("No OS found");
 	diag_log_dump();
 	while (1)
 		;

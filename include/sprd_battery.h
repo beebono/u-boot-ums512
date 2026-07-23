@@ -37,6 +37,7 @@ void sprdbat_chg_led(int on);
 uint32_t sprdbat_get_aux_vbatvol(void);
 void sprdchg_common_cfg(void);
 uint32_t sprdfgu_read_vbat_vol(void);
+int sprdfgu_read_capacity_permille(void);
 
 struct sc27xx_fgu_data {
 	int boot_cap;

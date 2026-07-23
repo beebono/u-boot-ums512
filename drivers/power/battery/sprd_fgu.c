@@ -229,6 +229,12 @@ static int sc27xx_fgu_read_last_cap(void)
 	return cap;
 }
 
+/* Public getter: last saved battery capacity in per-mille (0..1000). */
+int sprdfgu_read_capacity_permille(void)
+{
+	return sc27xx_fgu_read_last_cap();
+}
+
 static int sc27xx_fgu_read_normal_temperature_cap(void)
 {
 	int value = 0, normal_temp_cap = 0;
