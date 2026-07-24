@@ -19,6 +19,8 @@
 #include <sprd_direct_acc_prot.h>
 #include <otp_helper.h>
 #include <clk.h>
+#include <dm.h>
+#include <i2c.h>
 #include "sensor_board_info.h"
 
 #define ADC_CHANNEL_FOR_NV    3
@@ -136,8 +138,179 @@ int misc_init_r(void)
 	return 0;
 }
 
+#define AW32257_I2C_BUS		4
+#define AW32257_ADDR		0x6a
+#define AW32257_REG_CONTROL	0x01
+#define AW32257_REG_VOLTAGE	0x02
+#define AW32257_REG_CURRENT	0x04
+#define AW32257_REG_SAFETY	0x06
+#define AW32257_SAFETY_LIMITS	0xb7
+#define AW32257_VOLTAGE_CFG	((42 << 2) | 0x02)
+#define AW32257_CURRENT_CFG	((5 << 3) | 2)
+#define AW32257_CONTROL_CFG	0x38
+#define AW32257_CEN_BIT		BIT(2)	/* REG01[2]: 1 disables charging */
+#define BAT_NTC_ADC_CHANNEL	0	/* same channel the kernel calls bat-temp */
+#define BAT_NTC_SAMPLES		15
+#define BAT_TEMP_INVALID	(-30000)
+#define BAT_TEMP_MIN_DC		0	/* deci-celsius */
+#define BAT_TEMP_MAX_DC		600
+#define BAT_TEMP_HYST_DC	30
+
+static const struct {
+	int uv;
+	int temp_dc;
+} bat_ntc_table[] = {
+	{ 1095000, -200 }, { 986000, -150 }, { 878000, -100 }, { 775000, -50 },
+	{  678000,    0 }, { 590000,   50 }, { 510000,  100 }, { 440000, 150 },
+	{  378000,  200 }, { 324000,  250 }, { 278000,  300 }, { 238000, 350 },
+	{  204000,  400 }, { 175000,  450 }, { 150000,  500 }, { 129000, 550 },
+	{  111000,  600 }, {  96000,  650 },
+};
+
+static int aw32257_battery_temp_dc(void)
+{
+	int32_t raw[BAT_NTC_SAMPLES];
+	int32_t sum = 0;
+	int i, uv;
+
+	if (pmic_adc_get_values(BAT_NTC_ADC_CHANNEL, ADC_SCALE_0,
+				BAT_NTC_SAMPLES, raw))
+		return BAT_TEMP_INVALID;
+
+	for (i = 0; i < BAT_NTC_SAMPLES; i++)
+		sum += raw[i];
+
+	uv = sprd_chan_small_adc_to_vol(BAT_NTC_ADC_CHANNEL, ADC_SCALE_0, 0,
+					sum / BAT_NTC_SAMPLES) * 1000;
+
+	if (uv >= bat_ntc_table[0].uv)
+		return bat_ntc_table[0].temp_dc;
+
+	for (i = 1; i < ARRAY_SIZE(bat_ntc_table); i++) {
+		int hi_uv = bat_ntc_table[i - 1].uv;
+		int lo_uv = bat_ntc_table[i].uv;
+
+		if (uv < lo_uv)
+			continue;
+
+		return bat_ntc_table[i].temp_dc +
+		       (bat_ntc_table[i - 1].temp_dc - bat_ntc_table[i].temp_dc) *
+		       (uv - lo_uv) / (hi_uv - lo_uv);
+	}
+
+	return bat_ntc_table[ARRAY_SIZE(bat_ntc_table) - 1].temp_dc;
+}
+
+static int aw32257_set_charging(int enable)
+{
+	struct udevice *chg;
+	int ret, val;
+
+	ret = i2c_get_chip_for_busnum(AW32257_I2C_BUS, AW32257_ADDR, 1, &chg);
+	if (ret)
+		return ret;
+
+	val = dm_i2c_reg_read(chg, AW32257_REG_CONTROL);
+	if (val < 0)
+		return val;
+
+	if (enable)
+		val &= ~AW32257_CEN_BIT;
+	else
+		val |= AW32257_CEN_BIT;
+
+	ret = dm_i2c_reg_write(chg, AW32257_REG_CONTROL, (u8)val);
+	return ret < 0 ? ret : 0;
+}
+
+int aw32257_temp_guard(int blocked)
+{
+	int temp = aw32257_battery_temp_dc();
+	int min = BAT_TEMP_MIN_DC, max = BAT_TEMP_MAX_DC;
+	int block;
+
+	if (temp == BAT_TEMP_INVALID) {
+		printf("[uboot] aw32257: battery temperature unreadable, guard inactive\n");
+		return blocked;
+	}
+
+	if (blocked) {
+		min += BAT_TEMP_HYST_DC;
+		max -= BAT_TEMP_HYST_DC;
+	}
+
+	block = (temp < min || temp > max);
+
+	if (block != blocked) {
+		if (aw32257_set_charging(!block)) {
+			printf("[uboot] aw32257: failed to %s charging\n",
+			       block ? "inhibit" : "resume");
+			return blocked;
+		}
+		printf("[uboot] aw32257: battery %d.%dC, charging %s\n",
+		       temp / 10, temp < 0 ? -(temp % 10) : temp % 10,
+		       block ? "inhibited" : "resumed");
+	}
+
+	return block;
+}
+
+int aw32257_battery_temp(void)
+{
+	return aw32257_battery_temp_dc();
+}
+
+static void aw32257_init(void)
+{
+	struct udevice *chg;
+	int ret;
+
+	ret = i2c_get_chip_for_busnum(AW32257_I2C_BUS, AW32257_ADDR, 1, &chg);
+	if (ret) {
+		printf("[uboot] aw32257: i2c%d addr 0x%02x not found (%d)\n",
+		       AW32257_I2C_BUS, AW32257_ADDR, ret);
+		return;
+	}
+
+	ret = dm_i2c_reg_write(chg, AW32257_REG_SAFETY, AW32257_SAFETY_LIMITS);
+	if (ret < 0) {
+		printf("[uboot] aw32257: REG06 write failed (%d)\n", ret);
+		return;
+	}
+
+	ret = dm_i2c_reg_read(chg, AW32257_REG_SAFETY);
+	if (ret < 0)
+		printf("[uboot] aw32257: REG06 read-back failed (%d)\n", ret);
+	else if (ret == AW32257_SAFETY_LIMITS)
+		printf("[uboot] aw32257: safety limits set, REG06=0x%02x (4.34V/1984mA)\n",
+		       ret);
+	else
+		printf("[uboot] aw32257: REG06 locked, kept 0x%02x (wanted 0x%02x)\n",
+		       ret, AW32257_SAFETY_LIMITS);
+
+	ret = dm_i2c_reg_write(chg, AW32257_REG_VOLTAGE, AW32257_VOLTAGE_CFG);
+	if (ret < 0)
+		printf("[uboot] aw32257: REG02 write failed (%d)\n", ret);
+
+	ret = dm_i2c_reg_write(chg, AW32257_REG_CURRENT, AW32257_CURRENT_CFG);
+	if (ret < 0)
+		printf("[uboot] aw32257: REG04 write failed (%d)\n", ret);
+
+	ret = dm_i2c_reg_write(chg, AW32257_REG_CONTROL, AW32257_CONTROL_CFG);
+	if (ret < 0)
+		printf("[uboot] aw32257: REG01 write failed (%d)\n", ret);
+
+	printf("[uboot] aw32257: charge cfg 4.34V/1240mA (REG02=0x%02x REG04=0x%02x REG01=0x%02x)\n",
+	       AW32257_VOLTAGE_CFG, AW32257_CURRENT_CFG, AW32257_CONTROL_CFG);
+
+	aw32257_temp_guard(0);
+}
+
 static void battery_init(void)
 {
+	/* Must run before anything else can touch the charger. */
+	aw32257_init();
+
 	sprdchg_common_cfg();
 #ifdef CONFIG_SGM41512_CHARGE_IC
 	sprdchg_sgm41512_init();

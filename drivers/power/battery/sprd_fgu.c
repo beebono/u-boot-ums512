@@ -76,8 +76,14 @@ int low_bat;
 static int fgu_nv_4200mv = 2752;
 static int fgu_nv_3600mv = 2374;
 
+#define SC27XX_FGU_CUR_BASIC_ADC	8192
+#define SC27XX_FGU_IDEAL_RESISTANCE	20000
+#define SC27XX_FGU_CALIB_RESISTANCE	10000
+#define SPRDBAT_INTERNAL_RESIST_MOHM	230
+
 struct sprdfgu_cal {
 	int vol_1000mv_adc;
+	int cur_1000ma_adc;
 	int vol_offset;
 	int cal_type;
 };
@@ -125,6 +131,24 @@ uint32_t sprdfgu_read_vbat_vol(void)
 	cur_vol_raw = sprdfgu_reg_get(REG_FGU_VOLT_VAL);
 	temp = sprdfgu_adc2vol_mv(cur_vol_raw);
 	return temp;
+}
+
+int sprdfgu_read_cur_ma(void)
+{
+	int adc = sprdfgu_reg_get(REG_FGU_CURT_VAL) - SC27XX_FGU_CUR_BASIC_ADC;
+
+	if (fgu_cal.cur_1000ma_adc <= 0)
+		return 0;
+
+	return DIV_ROUND_CLOSEST(adc * 1000, fgu_cal.cur_1000ma_adc);
+}
+
+int sprdfgu_read_ocv_mv(void)
+{
+	int vbat = (int)sprdfgu_read_vbat_vol();
+	int cur = sprdfgu_read_cur_ma();
+
+	return vbat - DIV_ROUND_CLOSEST(cur * SPRDBAT_INTERNAL_RESIST_MOHM, 1000);
 }
 
 
@@ -230,9 +254,110 @@ static int sc27xx_fgu_read_last_cap(void)
 }
 
 /* Public getter: last saved battery capacity in per-mille (0..1000). */
-int sprdfgu_read_capacity_permille(void)
+int sprdfgu_read_saved_capacity_permille(void)
 {
 	return sc27xx_fgu_read_last_cap();
+}
+
+static const struct {
+	int uv;
+	int percent;
+} sprdfgu_ocv_table[] = {
+	{ 4338000, 100 }, { 4243000, 95 }, { 4189000, 90 }, { 4143000, 85 },
+	{ 4102000, 80 },  { 4051000, 75 }, { 4002000, 70 }, { 3958000, 65 },
+	{ 3901000, 60 },  { 3840000, 55 }, { 3784000, 50 }, { 3742000, 45 },
+	{ 3703000, 40 },  { 3673000, 35 }, { 3656000, 30 }, { 3622000, 25 },
+	{ 3595000, 20 },  { 3558000, 15 }, { 3523000, 10 }, { 3490000, 5 },
+	{ 3412000, 0 },
+};
+
+static int sprdfgu_ocv_to_permille(int uv)
+{
+	int i;
+
+	if (uv >= sprdfgu_ocv_table[0].uv)
+		return 1000;
+
+	for (i = 1; i < ARRAY_SIZE(sprdfgu_ocv_table); i++) {
+		const int hi_uv = sprdfgu_ocv_table[i - 1].uv;
+		const int lo_uv = sprdfgu_ocv_table[i].uv;
+
+		if (uv < lo_uv)
+			continue;
+
+		/* Linear interpolation between the bracketing entries. */
+		return (sprdfgu_ocv_table[i].percent * 10) +
+		       DIV_ROUND_CLOSEST((uv - lo_uv) *
+					 (sprdfgu_ocv_table[i - 1].percent -
+					  sprdfgu_ocv_table[i].percent) * 10,
+					 hi_uv - lo_uv);
+	}
+
+	return 0;
+}
+
+#define SPRDBAT_CV_VOLT_MV		4340	/* charger regulation voltage, see REG02 in ums512_1h10.c */
+#define SPRDBAT_CV_MARGIN_MV		20	/* how near CV counts as being in CV */
+#define SPRDBAT_TERM_CUR_MA		186	/* charger ITERM, see REG04 in ums512_1h10.c */
+
+static int cv_active;
+static int cv_entry_permille;
+static int cv_entry_cur_ma;
+static int cv_last_permille;
+
+/*
+ * Live capacity in per-mille (0..1000). Unlike the saved-capacity getter this
+ * actually moves while the device sits on the charge screen.
+ */
+int sprdfgu_read_live_capacity_permille(void)
+{
+	int vbat = (int)sprdfgu_read_vbat_vol();
+	int cur = sprdfgu_read_cur_ma();
+	int ocv = vbat - DIV_ROUND_CLOSEST(cur * SPRDBAT_INTERNAL_RESIST_MOHM,
+					   1000);
+	int permille = sprdfgu_ocv_to_permille(ocv * 1000);
+	int span, progress;
+
+	/* Not charging, or not yet at the regulation voltage: voltage is fine. */
+	if (cur <= 0 || vbat < SPRDBAT_CV_VOLT_MV - SPRDBAT_CV_MARGIN_MV) {
+		cv_active = 0;
+		return permille;
+	}
+
+	if (!cv_active) {
+		cv_active = 1;
+		cv_entry_permille = permille;
+		cv_entry_cur_ma = cur;
+		cv_last_permille = permille;
+	}
+
+	/*
+	 * Already at or below the charger's termination current on entry: the
+	 * pack is as full as this charger will make it.
+	 */
+	span = cv_entry_cur_ma - SPRDBAT_TERM_CUR_MA;
+	if (span <= 0)
+		return 1000;
+
+	progress = ((cv_entry_cur_ma - cur) * 1000) / span;
+	if (progress < 0)
+		progress = 0;
+	else if (progress > 1000)
+		progress = 1000;
+
+	permille = cv_entry_permille +
+		   ((1000 - cv_entry_permille) * progress) / 1000;
+
+	/*
+	 * Hold the high-water mark: charge current wanders a little under DPM
+	 * and load, and a percentage that ticks backwards on a charge screen
+	 * reads as a bug even when the underlying measurement is honest.
+	 */
+	if (permille < cv_last_permille)
+		permille = cv_last_permille;
+	cv_last_permille = permille;
+
+	return permille;
 }
 
 static int sc27xx_fgu_read_normal_temperature_cap(void)
@@ -384,6 +509,11 @@ static void sprdfgu_cal_init(void)
 		fgu_cal.vol_offset =
 		    0 - (fgu_nv_4200mv * 10 - fgu_cal.vol_1000mv_adc * 42) / 10;
 	}
+
+	fgu_cal.cur_1000ma_adc =
+	    DIV_ROUND_CLOSEST(fgu_cal.vol_1000mv_adc * 4 *
+			      SC27XX_FGU_CALIB_RESISTANCE,
+			      SC27XX_FGU_IDEAL_RESISTANCE);
 
 	debugf("4200mv=%d, 3600mv=%d\n", fgu_nv_4200mv, fgu_nv_3600mv);
 
