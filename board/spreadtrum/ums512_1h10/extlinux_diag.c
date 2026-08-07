@@ -285,7 +285,6 @@ static void lcd_handoff_blank(void)
 
 	lcd_clear();
 	lcd_sync();
-	charge_blank();
 }
 
 /*
@@ -509,7 +508,8 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 		"/extlinux/extlinux.conf",
 		"/boot/extlinux/extlinux.conf",
 	};
-	int sd_present, fi;
+	static const int parts[] = { 1, 2 };
+	int sd_present, fi, pi;
 
 	printf("[uboot] extlinux diagnostic scan\n");
 
@@ -571,32 +571,38 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	}
 
 	if (sd_present) {
-		for (fi = 0; fi < ARRAY_SIZE(paths); fi++) {
-			if (!file_exists("mmc", "1:2", paths[fi], FS_TYPE_ANY))
-				continue;
+		for (pi = 0; pi < ARRAY_SIZE(parts); pi++) {
+			char dev_part[8];
 
-			printf("[uboot] found %s, booting audio DSP\n",
-			       paths[fi]);
+			snprintf(dev_part, sizeof(dev_part), "1:%d", parts[pi]);
 
-			/*
-			 * Show our own "Booting..." banner (not the stock logo)
-			 * so it's clear we're on the custom firmware, then set up
-			 * the audio DSP right before we jump to the kernel. The
-			 * banner stays lit through the kernel/dtb/initrd load and
-			 * is blanked in arch_preboot_os(), one call before the
-			 * kernel entry.
-			 */
-			lcd_banner("Booting...");
-			memset_dsp_share_memory();
+			for (fi = 0; fi < ARRAY_SIZE(paths); fi++) {
+				if (!file_exists("mmc", dev_part, paths[fi],
+						 FS_TYPE_ANY))
+					continue;
 
-			if (!try_sysboot(1, 2, paths[fi]))
-				return 0;
+				printf("[uboot] found %s on mmc %s, booting audio DSP\n",
+				       paths[fi], dev_part);
 
-			/* Config was there, but boot failed. Nothing to fall back to. */
-			printf("[uboot] sysboot failed after DSP boot\n");
-			break;
+				/*
+				 * Show our own "Booting..." banner (not the stock logo)
+				 * so it's clear we're on the custom firmware, then set up
+				 * the audio DSP right before we jump to the kernel.
+				 */
+				lcd_banner("Booting...");
+				memset_dsp_share_memory();
+
+				if (!try_sysboot(1, parts[pi], paths[fi]))
+					return 0;
+
+				/* Config was there, but boot failed. Nothing to fall back to. */
+				printf("[uboot] sysboot failed after DSP boot\n");
+				goto scan_done;
+			}
 		}
 	}
+
+scan_done:
 
 	/*
 	 * This U-Boot is hosted on the SD card and boots mainline directly, so
