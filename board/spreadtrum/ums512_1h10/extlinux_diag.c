@@ -30,6 +30,7 @@
 #define DHTB_HEADER_SIZE	0x200
 #define DHTB_MAGIC		0x42544844	/* "DHTB", little-endian */
 #define DHTB_DATA_SIZE_OFF	0x30
+#define STOCK_CERT_SIZE		1024	/* secure cert appended after the payload */
 #define STOCK_STAGE_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x00100000)
 #define STOCK_TRAMP_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x01000000)
 #define STOCK_MAX_SIZE		(8 * 1024 * 1024)
@@ -394,7 +395,7 @@ static int chainload_stock_uboot(void)
 		(void (*)(void *, void *, unsigned long, void *))STOCK_TRAMP_ADDR;
 	static char hdr[DHTB_HEADER_SIZE] __aligned(64);
 	char *stage = (char *)STOCK_STAGE_ADDR;
-	uint64_t data_size;
+	uint64_t data_size, load_size;
 	ulong tramp_len;
 
 	if (common_raw_read(STOCK_UBOOT_PARTITION,
@@ -418,11 +419,21 @@ static int chainload_stock_uboot(void)
 		return -1;
 	}
 
-	printf("[uboot] staging stock U-Boot (%llu bytes) at 0x%08lx\n",
-	       (unsigned long long)data_size, (ulong)STOCK_STAGE_ADDR);
+	/*
+	 * The secure cert is appended after the payload and is part of what the
+	 * SPL loads: load_partition_with_header() reads mImgSize + 1024 under
+	 * CONFIG_SECBOOT. The stock u-boot follows sechdr_addr->cert_offset into
+	 * that tail, so stopping at mImgSize leaves cert_addr pointing just past
+	 * the copy at whatever we left in DRAM.
+	 */
+	load_size = data_size + STOCK_CERT_SIZE;
+
+	printf("[uboot] staging stock U-Boot (%llu bytes + %u cert) at 0x%08lx\n",
+	       (unsigned long long)data_size, STOCK_CERT_SIZE,
+	       (ulong)STOCK_STAGE_ADDR);
 
 	/* Payload begins right after the DHTB header. Read into scratch first. */
-	if (common_raw_read(STOCK_UBOOT_PARTITION, data_size,
+	if (common_raw_read(STOCK_UBOOT_PARTITION, load_size,
 			    (uint64_t)DHTB_HEADER_SIZE, stage)) {
 		printf("[uboot] %s: payload read failed\n",
 		       STOCK_UBOOT_PARTITION);
@@ -452,7 +463,7 @@ static int chainload_stock_uboot(void)
 	/* Clean slate for stock u-boot. */
 	cleanup_before_linux();
 
-	tramp((void *)CONFIG_SYS_TEXT_BASE, stage, (unsigned long)data_size,
+	tramp((void *)CONFIG_SYS_TEXT_BASE, stage, (unsigned long)load_size,
 	      (void *)CONFIG_SYS_TEXT_BASE);
 
 	/* If control ever comes back, the jump failed. */
