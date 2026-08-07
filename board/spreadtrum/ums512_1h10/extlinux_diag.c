@@ -14,11 +14,36 @@
 #include <dm/uclass.h>
 #include <dm/device-internal.h>
 #include <i2c.h>
+#include <sprd_pin.h>
 #include <asm/u-boot-arm.h>
 
 #include <asm/arch-sharkl5pro/chip_sharkl5pro/aon_apb.h>
 #include <asm/arch-sharkl5pro/chip_sharkl5pro/pmu_apb.h>
 #include "cp_boot.h"
+
+/*
+ * Hold VOLUME-UP at power-on to hand the boot back to the stock U-Boot in
+ * eMMC (and from there, Android). Everything else boots mainline off the SD
+ * card as usual.
+ */
+#define STOCK_UBOOT_PARTITION	"uboot_a"
+#define DHTB_HEADER_SIZE	0x200
+#define DHTB_MAGIC		0x42544844	/* "DHTB", little-endian */
+#define DHTB_DATA_SIZE_OFF	0x30
+#define STOCK_STAGE_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x00100000)
+#define STOCK_TRAMP_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x01000000)
+#define STOCK_MAX_SIZE		(8 * 1024 * 1024)
+
+/*
+ * VOLUME-UP on this board is ap_gpio 30 (pad RFCTL11, func4), active low with
+ * a 20k pull-up - see volup_pin_func/volup_pin_misc in ums512-rg-rotate.dts.
+ * board_key_scan() is not usable here: it is the stock ums512_1h10 wiring,
+ * which reads VOLUME-UP off a PMIC EIC and VOLUME-DOWN off ap_gpio 124. On
+ * the Rotate that is inverted (VOLUME-DOWN is pmic_eic 4), so read the pad
+ * directly and leave the stock scanner alone for the fastboot/sysdump paths.
+ */
+#define VOLUP_GPIO		30
+#define VOLUP_SETTLE_US		3000	/* pad settle after mux+pull, as board_key_scan does */
 
 /* Charge screen tuning. */
 #define CHARGE_SPLASH_MS	3000	/* how long the "Charging..." text stays lit */
@@ -44,6 +69,33 @@ extern void power_down_devices(unsigned pd_cmd);
 extern void stop_watchdog(void);
 extern int aw32257_temp_guard(int blocked);
 extern int aw32257_battery_temp(void);
+extern int sprd_gpio_request(struct gpio_chip *chip, unsigned offset);
+extern int sprd_gpio_direction_input(struct gpio_chip *chip, unsigned offset);
+extern int sprd_gpio_get(struct gpio_chip *chip, unsigned offset);
+
+extern char stock_tramp[];
+extern char stock_tramp_end[];
+
+/*
+ * Copy len bytes from x1 to x0, then jump to x3. Runs from scratch RAM after
+ * cleanup_before_linux(), because the destination it writes is this U-Boot's
+ * own text.
+ */
+asm(
+"	.pushsection	.text.stock_tramp, \"ax\"\n"
+"	.globl	stock_tramp\n"
+"	.type	stock_tramp, %function\n"
+"stock_tramp:\n"
+"1:	cbz	x2, 2f\n"
+"	ldrb	w4, [x1], #1\n"
+"	strb	w4, [x0], #1\n"
+"	sub	x2, x2, #1\n"
+"	b	1b\n"
+"2:	br	x3\n"
+"	.globl	stock_tramp_end\n"
+"stock_tramp_end:\n"
+"	.popsection\n"
+);
 
 static void diag_log_dump(void)
 {
@@ -308,6 +360,92 @@ static int try_sysboot(int dev, int part, const char *path)
 	return ret;
 }
 
+/* 1 while VOLUME-UP is held. Safe to call before any keypad init. */
+static int volup_pressed(void)
+{
+	int val;
+
+	/* func4 + input-enable + 20k pull-up, matching the kernel's pinmux. */
+	if (gpio_pin_set(VOLUP_GPIO, PIN_IE, PIN_UP_20K))
+		return 0;
+
+	sprd_gpio_request(NULL, VOLUP_GPIO);
+	sprd_gpio_direction_input(NULL, VOLUP_GPIO);
+	udelay(VOLUP_SETTLE_US);
+
+	val = sprd_gpio_get(NULL, VOLUP_GPIO);
+	if (val < 0) {
+		printf("[uboot] volup: gpio read failed (%d)\n", val);
+		return 0;
+	}
+
+	return val == 0;	/* active low */
+}
+
+/*
+ * Stage the stock U-Boot out of eMMC and jump to it. The payload is a signed
+ * DHTB image; its real contents start right after the 0x200 header, and it
+ * links to the same CONFIG_SYS_TEXT_BASE we are currently executing from --
+ * hence the copy-and-jump stub in scratch RAM. Only returns on failure.
+ */
+static int chainload_stock_uboot(void)
+{
+	void (*tramp)(void *, void *, unsigned long, void *) =
+		(void (*)(void *, void *, unsigned long, void *))STOCK_TRAMP_ADDR;
+	static char hdr[DHTB_HEADER_SIZE] __aligned(64);
+	char *stage = (char *)STOCK_STAGE_ADDR;
+	uint64_t data_size;
+	ulong tramp_len;
+
+	if (common_raw_read(STOCK_UBOOT_PARTITION,
+			    (uint64_t)DHTB_HEADER_SIZE, (uint64_t)0, hdr)) {
+		printf("[uboot] cannot read %s header\n",
+		       STOCK_UBOOT_PARTITION);
+		return -1;
+	}
+
+	if (*(uint32_t *)hdr != DHTB_MAGIC) {
+		printf("[uboot] %s: bad DHTB magic 0x%08x\n",
+		       STOCK_UBOOT_PARTITION, *(uint32_t *)hdr);
+		return -1;
+	}
+
+	data_size = *(uint64_t *)(hdr + DHTB_DATA_SIZE_OFF);
+	if (!data_size || data_size > STOCK_MAX_SIZE) {
+		printf("[uboot] %s: implausible payload size %llu (max %u)\n",
+		       STOCK_UBOOT_PARTITION, (unsigned long long)data_size,
+		       STOCK_MAX_SIZE);
+		return -1;
+	}
+
+	printf("[uboot] staging stock U-Boot (%llu bytes) at 0x%08lx\n",
+	       (unsigned long long)data_size, (ulong)STOCK_STAGE_ADDR);
+
+	/* Payload begins right after the DHTB header. Read into scratch first. */
+	if (common_raw_read(STOCK_UBOOT_PARTITION, data_size,
+			    (uint64_t)DHTB_HEADER_SIZE, stage)) {
+		printf("[uboot] %s: payload read failed\n",
+		       STOCK_UBOOT_PARTITION);
+		return -1;
+	}
+
+	/* Park the copy-and-jump stub in scratch, clear of the TEXT_BASE dest. */
+	tramp_len = (ulong)stock_tramp_end - (ulong)stock_tramp;
+	memcpy((void *)STOCK_TRAMP_ADDR, (void *)stock_tramp, tramp_len);
+
+	/* Never returns on success. Flush the log while we still can. */
+	diag_log_dump();
+
+	/* Clean slate for stock u-boot. */
+	cleanup_before_linux();
+
+	tramp((void *)CONFIG_SYS_TEXT_BASE, stage, (unsigned long)data_size,
+	      (void *)CONFIG_SYS_TEXT_BASE);
+
+	/* If control ever comes back, the jump failed. */
+	return -1;
+}
+
 static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 			    char * const argv[])
 {
@@ -318,6 +456,29 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	int sd_present, fi;
 
 	printf("[uboot] extlinux diagnostic scan\n");
+
+	/*
+	 * Sample VOLUME-UP first: charge_screen() below can block for minutes,
+	 * and by then the user has long since let go of the button.
+	 */
+	if (volup_pressed()) {
+		printf("[uboot] volup held, chainloading %s\n",
+		       STOCK_UBOOT_PARTITION);
+		lcd_banner("Booting Android...");
+
+		chainload_stock_uboot();
+
+		/*
+		 * Only reached on failure. Stop here rather than falling through
+		 * to the SD boot: silently booting mainline would look like the
+		 * button did not register, hiding a broken stock partition.
+		 */
+		printf("[uboot] chainload failed!\n");
+		lcd_banner("Chainload failed");
+		diag_log_dump();
+		while (1)
+			;
+	}
 
 	sd_present = board_sd_init() != NULL;
 	if (sd_present) {
