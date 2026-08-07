@@ -429,6 +429,19 @@ static int chainload_stock_uboot(void)
 		return -1;
 	}
 
+	/*
+	 * Stage the DHTB header where the SPL would have put it. The stock u-boot
+	 * reads its own secure header back out of RAM at TEXT_BASE - KEY_INFO_SIZ
+	 * (sprd_get_vboot_key(CONFIG_SYS_TEXT_BASE - 0x200, ..., GET_FROM_RAM) in
+	 * sec_common.c), which is where the SPL's load_partition_with_header()
+	 * leaves it. Copy only the payload and stock parses our leftover heap
+	 * instead, derives a garbage cert_addr and data-aborts in dumpHex.
+	 * This lands below TEXT_BASE, so it does not collide with the payload copy
+	 * or with our own relocated text at the top of DRAM.
+	 */
+	memcpy((void *)(CONFIG_SYS_TEXT_BASE - DHTB_HEADER_SIZE), hdr,
+	       DHTB_HEADER_SIZE);
+
 	/* Park the copy-and-jump stub in scratch, clear of the TEXT_BASE dest. */
 	tramp_len = (ulong)stock_tramp_end - (ulong)stock_tramp;
 	memcpy((void *)STOCK_TRAMP_ADDR, (void *)stock_tramp, tramp_len);
@@ -520,7 +533,7 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 			 * so it's clear we're on the custom firmware, then set up
 			 * the audio DSP right before we jump to the kernel.
 			 */
-			lcd_banner("Booting...");
+			lcd_banner("Booting Linux...");
 			memset_dsp_share_memory();
 
 			if (!try_sysboot(1, 2, paths[fi]))
