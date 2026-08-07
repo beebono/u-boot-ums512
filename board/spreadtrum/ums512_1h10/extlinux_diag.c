@@ -268,6 +268,38 @@ static void charge_blank(void)
 }
 
 /*
+ * Hand the panel to the kernel dark: wipe the framebuffer to black, push that
+ * to the panel, then drop the backlight. lcd_clear() fills with bg_color,
+ * which is black here (CONFIG_SYS_WHITE_ON_BLACK). No-op if the panel was
+ * never brought up.
+ *
+ * This is what arch_preboot_os() calls, so the "Booting..." banner stays lit
+ * for the whole kernel/dtb/initrd load and only goes dark at the handoff --
+ * rather than the kernel's DRM bring-up relighting a panel that still holds
+ * our pixels, which is what produced the line artifacts before fbcon cleared.
+ */
+static void lcd_handoff_blank(void)
+{
+	if (!panel_up)
+		return;
+
+	lcd_clear();
+	lcd_sync();
+	charge_blank();
+}
+
+/*
+ * Weak hook in common/bootm_os.c, called from boot_selected_os() immediately
+ * before the kernel entry -- the last code that runs with the framebuffer
+ * still ours. Only the extlinux/sysboot path goes through bootm; the stock
+ * chainload jumps on its own and never gets here.
+ */
+void arch_preboot_os(void)
+{
+	lcd_handoff_blank();
+}
+
+/*
  * Offline charge screen. Entered when the device was plugged in while powered
  * off. Shows a brief "Charging..." splash, blanks the panel, then polls the
  * power key: a short press flashes the current charge, a long hold returns 0
@@ -488,8 +520,15 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 	if (volup_pressed()) {
 		printf("[uboot] volup held, chainloading %s\n",
 		       STOCK_UBOOT_PARTITION);
-		lcd_banner("Booting Android...");
 
+		/*
+		 * Deliberately no banner here. Bringing the panel up leaves the DSI
+		 * link live, and the stock u-boot's own bring-up then spends ~1.8s
+		 * spinning in dsi_hal_wait_tx_cmd_fifo_empty before it recovers
+		 * (lcd init 7911ms chainloaded vs 679ms booted directly) -- all of it
+		 * with the vibrator already latched on by normal_mode(). Leave the
+		 * panel cold and let stock own it.
+		 */
 		chainload_stock_uboot();
 
 		/*
@@ -542,9 +581,12 @@ static int do_extlinux_scan(cmd_tbl_t *cmdtp, int flag, int argc,
 			/*
 			 * Show our own "Booting..." banner (not the stock logo)
 			 * so it's clear we're on the custom firmware, then set up
-			 * the audio DSP right before we jump to the kernel.
+			 * the audio DSP right before we jump to the kernel. The
+			 * banner stays lit through the kernel/dtb/initrd load and
+			 * is blanked in arch_preboot_os(), one call before the
+			 * kernel entry.
 			 */
-			lcd_banner("Booting Linux...");
+			lcd_banner("Booting...");
 			memset_dsp_share_memory();
 
 			if (!try_sysboot(1, 2, paths[fi]))
